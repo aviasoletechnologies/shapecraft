@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
-import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
+import { SchemaViolationError, isZodSchema, isJsonSchemaInput, isRegexInput } from "../types.js";
+import { resolveJsonSchema, buildStructuredPrompt, validateOutput } from "../core/schema.js";
 
 export interface OpenAIBackendOptions {
   model?: string;
@@ -16,7 +16,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("openai").catch(() => {
         throw new Error("Install openai: npm install openai");
@@ -29,31 +29,31 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       });
 
       const { system, user } = buildStructuredPrompt(prompt, schema);
-      const jsonSchema = toJsonSchema(schema);
 
-      const response = await client.chat.completions.create({
+      // Use strict JSON schema mode only when schema is resolvable to JSON schema
+      const jsonSchema = resolveJsonSchema(schema);
+      const useStrictMode = !isRegexInput(schema) && jsonSchema !== null;
+
+      const requestBody: Record<string, unknown> = {
         model: modelId,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "output",
-            strict: true,
-            schema: jsonSchema,
-          },
-        },
-      });
+      };
 
+      if (useStrictMode) {
+        requestBody.response_format = {
+          type: "json_schema",
+          json_schema: { name: "output", strict: true, schema: jsonSchema },
+        };
+      }
+
+      const response = await client.chat.completions.create(requestBody);
       const raw: string = response.choices[0]?.message?.content ?? "";
 
       try {
-        const parsed = JSON.parse(raw);
-        const result = schema.safeParse(parsed);
-        if (!result.success) throw new SchemaViolationError(raw, result.error);
-        return result.data as T;
+        return validateOutput<T>(raw, schema);
       } catch (err) {
         throw new SchemaViolationError(raw, err);
       }

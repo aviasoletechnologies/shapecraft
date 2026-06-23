@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
-import { buildStructuredPrompt } from "../core/schema.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
+import { SchemaViolationError, isRegexInput } from "../types.js";
+import { buildStructuredPrompt, validateOutput } from "../core/schema.js";
 
 export interface GroqBackendOptions {
   model?: string;
@@ -15,7 +15,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("groq-sdk").catch(() => {
         throw new Error("Install groq: npm install groq-sdk");
@@ -28,22 +28,24 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       const { system, user } = buildStructuredPrompt(prompt, schema);
 
-      const response = await client.chat.completions.create({
+      const requestBody: Record<string, unknown> = {
         model: modelId,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: { type: "json_object" },
-      });
+      };
 
+      // Groq JSON mode only for non-regex schemas
+      if (!isRegexInput(schema)) {
+        requestBody.response_format = { type: "json_object" };
+      }
+
+      const response = await client.chat.completions.create(requestBody);
       const raw: string = response.choices[0]?.message?.content ?? "";
 
       try {
-        const parsed = JSON.parse(raw);
-        const result = schema.safeParse(parsed);
-        if (!result.success) throw new SchemaViolationError(raw, result.error);
-        return result.data as T;
+        return validateOutput<T>(raw, schema);
       } catch (err) {
         throw new SchemaViolationError(raw, err);
       }

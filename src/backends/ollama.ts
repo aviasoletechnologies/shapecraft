@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
-import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
+import { SchemaViolationError, isRegexInput } from "../types.js";
+import { resolveJsonSchema, buildStructuredPrompt, validateOutput } from "../core/schema.js";
 
 export interface OllamaBackendOptions {
   model: string;
@@ -15,22 +15,28 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
       const { system, user } = buildStructuredPrompt(prompt, schema);
-      const jsonSchema = toJsonSchema(schema);
+      const jsonSchema = resolveJsonSchema(schema);
+
+      const body: Record<string, unknown> = {
+        model: options.model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        stream: false,
+      };
+
+      // Ollama supports JSON schema grammar constraint for non-regex schemas
+      if (!isRegexInput(schema) && jsonSchema !== null) {
+        body.format = jsonSchema;
+      }
 
       const response = await fetch(`${host}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: options.model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          format: jsonSchema,
-          stream: false,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -41,10 +47,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
       const raw = json.message?.content ?? "";
 
       try {
-        const parsed = JSON.parse(raw);
-        const result = schema.safeParse(parsed);
-        if (!result.success) throw new SchemaViolationError(raw, result.error);
-        return result.data as T;
+        return validateOutput<T>(raw, schema);
       } catch (err) {
         throw new SchemaViolationError(raw, err);
       }
