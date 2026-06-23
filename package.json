@@ -1,0 +1,69 @@
+{
+  "name": "@aviasole/shapecraft",
+  "version": "0.1.0",
+  "description": "Structured output generation for LLMs in Node.js — token-level constraints for local models, native JSON modes for cloud APIs",
+  "author": "Aviasole Technologies",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aviasoletechnologies/shapecraft.git"
+  },
+  "homepage": "https://github.com/aviasoletechnologies/shapecraft#readme",
+  "bugs": {
+    "url": "https://github.com/aviasoletechnologies/shapecraft/issues"
+  },
+  "keywords": [
+    "llm",
+    "structured-output",
+    "constrained-generation",
+    "json-schema",
+    "zod",
+    "openai",
+    "ollama",
+    "llama",
+    "ai"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly --declaration --declarationMap --outDir dist",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "peerDependencies": {
+    "node-llama-cpp": ">=3.0.0",
+    "openai": ">=4.0.0",
+    "ollama": ">=0.5.0",
+    "zod": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "node-llama-cpp": { "optional": true },
+    "openai": { "optional": true },
+    "ollama": { "optional": true }
+  },
+  "dependencies": {
+    "zod-to-json-schema": "^3.23.0"
+  }
+}
