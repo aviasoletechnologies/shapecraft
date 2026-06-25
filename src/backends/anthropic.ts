@@ -14,7 +14,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
     id: `anthropic:${modelId}`,
     guaranteeLevel: "best-effort",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("@anthropic-ai/sdk").catch(() => {
         throw new Error("Install sdk: npm install @anthropic-ai/sdk");
@@ -25,7 +25,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
         apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
       const response = await client.messages.create({
         model: modelId,
