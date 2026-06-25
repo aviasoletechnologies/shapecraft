@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
+import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
 
 export interface OllamaBackendOptions {
@@ -15,9 +16,16 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T> {
       const { system, user } = buildStructuredPrompt(prompt, schema);
-      const jsonSchema = toJsonSchema(schema);
+
+      // Pass JSON schema to Ollama's format param for constrained decoding when possible
+      let format: unknown = undefined;
+      if (isZodSchema(schema)) {
+        format = toJsonSchema(schema as z.ZodType<any>);
+      } else if ("jsonSchema" in (schema as object)) {
+        format = (schema as { jsonSchema: Record<string, unknown> }).jsonSchema;
+      }
 
       const response = await fetch(`${host}/api/chat`, {
         method: "POST",
@@ -28,7 +36,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
             { role: "system", content: system },
             { role: "user", content: user },
           ],
-          format: jsonSchema,
+          ...(format ? { format } : {}),
           stream: false,
         }),
       });

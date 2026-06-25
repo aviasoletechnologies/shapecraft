@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
+import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
 
 export interface OpenAIBackendOptions {
@@ -16,7 +17,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("openai").catch(() => {
         throw new Error("Install openai: npm install openai");
@@ -29,7 +30,19 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       });
 
       const { system, user } = buildStructuredPrompt(prompt, schema);
-      const jsonSchema = toJsonSchema(schema);
+
+      // Use strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
+      const responseFormat = isZodSchema(schema)
+        ? {
+            type: "json_schema" as const,
+            json_schema: { name: "output", strict: true, schema: toJsonSchema(schema as z.ZodType<any>) },
+          }
+        : "jsonSchema" in (schema as object)
+          ? {
+              type: "json_schema" as const,
+              json_schema: { name: "output", strict: false, schema: (schema as { jsonSchema: Record<string, unknown> }).jsonSchema },
+            }
+          : { type: "json_object" as const };
 
       const response = await client.chat.completions.create({
         model: modelId,
@@ -37,14 +50,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "output",
-            strict: true,
-            schema: jsonSchema,
-          },
-        },
+        response_format: responseFormat,
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";

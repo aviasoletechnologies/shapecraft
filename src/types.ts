@@ -2,11 +2,16 @@ import { z } from "zod";
 
 export type GuaranteeLevel = "constrained" | "native" | "best-effort";
 
+export type JsonSchemaInput = { jsonSchema: Record<string, unknown> };
+export type PatternInput = { pattern: RegExp };
+export type ValidatorInput = { validate: (output: unknown) => boolean };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput;
+
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T>;
+  generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T>;
 }
 
 export interface GenerateOptions {
