@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
+import { parseAndValidate } from "../core/parse.js";
 
 export interface GroqBackendOptions {
   model?: string;
@@ -39,14 +39,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       const raw: string = response.choices[0]?.message?.content ?? "";
 
-      try {
-        const parsed = JSON.parse(raw);
-        const result = schema.safeParse(parsed);
-        if (!result.success) throw new SchemaViolationError(raw, result.error);
-        return result.data as T;
-      } catch (err) {
-        throw new SchemaViolationError(raw, err);
-      }
+      return parseAndValidate<T>(raw, schema);
     },
   };
 }
