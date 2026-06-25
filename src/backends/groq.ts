@@ -13,7 +13,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
   return {
     id: `groq:${modelId}`,
-    guaranteeLevel: "native",
+    guaranteeLevel: "best-effort",
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

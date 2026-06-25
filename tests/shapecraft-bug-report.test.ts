@@ -8,10 +8,10 @@
  * Needs: GROQ_API_KEY in .env
  *
  * B1  FIXED  — non-schema errors were retried instead of thrown immediately
- * B2  OPEN   — GenerateOptions.systemPrompt silently ignored by all backends
+ * B2  FIXED  — GenerateOptions.systemPrompt silently ignored by all backends
  * B3  OPEN   — GenerateOptions.temperature silently ignored by all backends
  * B5  FIXED  — { pattern } schema on Groq always throws HTTP 400
- * B6  OPEN   — Groq guaranteeLevel returns "native" but enforces nothing at API level
+ * B6  FIXED  — Groq guaranteeLevel returns "native" but enforces nothing at API level
  * B8  OPEN   — z.number().optional() crashes when AI sends null
  */
 
@@ -56,19 +56,12 @@ describe("Library Bug Tests", () => {
     }
   }, 30000);
 
-  // ─── B2: OPEN ──────────────────────────────────────────────────────────────
+  // ─── B2: FIXED ─────────────────────────────────────────────────────────────
   //
-  // BUG: GenerateOptions.systemPrompt typed in types.ts but never sent to any backend.
-  //
-  // ROOT CAUSE: groq.ts / anthropic.ts / gemini.ts never read options.systemPrompt.
-  //
-  // SILENT MISBEHAVIOUR:
-  //   systemPrompt: "Always respond ONLY in Spanish."
-  //   Result: AI returns English — instruction silently dropped, no error.
-  //
-  // FIX NEEDED: prepend { role: "system", content: options.systemPrompt }
-  //   to messages array in each backend when systemPrompt is provided.
-  itLive("B2 — OPEN: systemPrompt option silently ignored by Groq backend", async () => {
+  // FIX in schema.ts (by Yatin): systemPrompt now prepended to system message,
+  //   schema instructions appended after — not replacing user's instruction.
+  //   Fix in backends: genOptions?.systemPrompt passed to buildStructuredPrompt.
+  itLive("B2 — FIXED: systemPrompt forwarded to Groq backend", async () => {
     const result = await generate(
       model,
       z.object({ greeting: z.string() }),
@@ -77,8 +70,7 @@ describe("Library Bug Tests", () => {
     );
 
     console.log(`[B2] greeting: "${result.data.greeting}"`);
-    expect(typeof result.data.greeting).toBe("string");
-    // When B2 is fixed, assert Spanish: expect(result.data.greeting.toLowerCase()).toMatch(/hola|mundo/)
+    expect(result.data.greeting.toLowerCase()).toMatch(/hola|mundo|bienvenido/);
   }, 30000);
 
   // ─── B3: OPEN ──────────────────────────────────────────────────────────────
@@ -126,19 +118,12 @@ describe("Library Bug Tests", () => {
     expect(/^\+?[1-9]\d{9,14}$/.test(result.data as string)).toBe(true);
   }, 30000);
 
-  // ─── B6: OPEN ──────────────────────────────────────────────────────────────
+  // ─── B6: FIXED ─────────────────────────────────────────────────────────────
   //
-  // BUG: groq.ts returns guaranteeLevel: "native" implying Groq enforces schema
-  //   at the API level. It does not. Groq only forces valid JSON output.
-  //   All field-level constraints (min/max, enum, required fields) are enforced
-  //   by Zod post-generation, not by Groq.
-  //
-  // MISLEADING METADATA — no error thrown:
-  //   result.guaranteeLevel === "native"   ← false claim
-  //
-  // FIX NEEDED in groq.ts:
-  //   return { data, attempts, guaranteeLevel: "best-effort" }
-  itLive("B6 — OPEN: guaranteeLevel 'native' is false — Groq enforces nothing at API level", async () => {
+  // FIX in groq.ts: guaranteeLevel changed from "native" to "best-effort".
+  //   Groq only enforces valid JSON — field constraints (min/max, enum) are
+  //   enforced by Zod post-generation, not by the Groq API.
+  itLive("B6 — FIXED: guaranteeLevel is 'best-effort' for Groq", async () => {
     const result = await generate(
       model,
       z.object({
@@ -149,7 +134,7 @@ describe("Library Bug Tests", () => {
     );
 
     console.log(`[B6] score: ${result.data.score}, label: "${result.data.label}", guaranteeLevel: "${result.guaranteeLevel}"`);
-    expect(result.guaranteeLevel).toBe("native"); // BUG: should be "best-effort"
+    expect(result.guaranteeLevel).toBe("best-effort");
     expect(result.data.score).toBeGreaterThanOrEqual(1);
     expect(result.data.score).toBeLessThanOrEqual(10);
     expect(["low", "medium", "high"]).toContain(result.data.label);
