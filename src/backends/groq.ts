@@ -14,7 +14,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, options?: GenerateOptions): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("groq-sdk").catch(() => {
         throw new Error("Install groq: npm install groq-sdk");
@@ -22,7 +22,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       const Groq = mod.default ?? mod;
       const client = new Groq({
-        apiKey: options.apiKey ?? process.env.GROQ_API_KEY,
+        apiKey: options?.apiKey ?? process.env.GROQ_API_KEY,
       });
 
       const { system, user } = buildStructuredPrompt(prompt, schema);
@@ -34,7 +34,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "user", content: user },
         ],
         response_format: { type: "json_object" },
-        ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
+        ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";

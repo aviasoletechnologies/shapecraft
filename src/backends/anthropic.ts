@@ -1,4 +1,4 @@
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { GenerateOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
 
@@ -14,7 +14,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
     id: `anthropic:${modelId}`,
     guaranteeLevel: "best-effort",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("@anthropic-ai/sdk").catch(() => {
         throw new Error("Install sdk: npm install @anthropic-ai/sdk");
@@ -32,6 +32,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
         max_tokens: 4096,
         system,
         messages: [{ role: "user", content: user }],
+        ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
       });
 
       const raw: string =
