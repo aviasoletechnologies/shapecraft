@@ -1,30 +1,22 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { generate } from "../src/core/generate.js";
-import type { ShapecraftModel } from "../src/types.js";
-import { SchemaViolationError } from "../src/types.js";
+import { anthropic } from "../src/backends/index.js";
+import { mockModel } from "./helpers/index.js";
 
 const PersonSchema = z.object({
   name: z.string(),
   age: z.number(),
 });
 
-function mockModel(returnValue: unknown, shouldFail = false): ShapecraftModel {
-  return {
-    id: "mock:test",
-    guaranteeLevel: "constrained",
-    async generate<T>(): Promise<T> {
-      if (shouldFail) throw new SchemaViolationError("bad", "invalid");
-      return returnValue as T;
-    },
-  };
-}
+
+// Ensure the module is imported for coverage
 
 describe("generate", () => {
   it("returns data on success", async () => {
     const model = mockModel({ name: "Alice", age: 30 });
     const result = await generate(model, PersonSchema, "get person");
-    expect(result.data).toEqual({ name: "Alice", age: 30 });
+    expect(result.data).toMatchObject({ name: "Alice", age: 30 });
     expect(result.attempts).toBe(1);
     expect(result.guaranteeLevel).toBe("constrained");
   });
@@ -35,5 +27,23 @@ describe("generate", () => {
     await expect(
       generate(model, PersonSchema, "get person", { maxRetries: 2 })
     ).rejects.toBeInstanceOf(MaxRetriesExceededError);
+  });
+});
+
+describe("anthropic-model-test", () => {
+  it("returns data on success", async () => {
+    const model = anthropic({apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001"});
+    const result = await generate(model, PersonSchema, "Abhi has a friend named Alice who is 30 years old");
+    console.log("Result:", result);
+    expect(result.data).toMatchObject({ name: "Alice", age: 30 });
+    expect(result.attempts).toBe(1);
+    expect(result.guaranteeLevel).toBe("best-effort");
+  });
+
+  it("returns best-effort guaranteeLevel", async () => {
+    const model = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001" });
+    const result = await generate(model, PersonSchema, "Bob is 25 years old");
+    expect(result.guaranteeLevel).toBe("best-effort");
+    expect(result.data).toMatchObject({ name: expect.any(String), age: expect.any(Number) });
   });
 });

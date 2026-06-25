@@ -47,30 +47,46 @@
     "prepublishOnly": "npm run build && npm run typecheck && npm run test"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/genai": "^2.10.0",
     "@types/node": "^20.0.0",
+    "groq-sdk": "^0.9.0",
+    "ollama": ">=0.5.0",
+    "openai": "^4.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },
   "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.39.0",
+    "@google/genai": ">=2.0.0",
+    "groq-sdk": ">=0.9.0",
     "node-llama-cpp": ">=3.0.0",
     "ollama": ">=0.5.0",
     "openai": ">=4.0.0",
     "zod": ">=3.0.0"
   },
   "peerDependenciesMeta": {
-    "node-llama-cpp": {
+    "@anthropic-ai/sdk": {
       "optional": true
     },
-    "openai": {
+    "@google/genai": {
+      "optional": true
+    },
+    "groq-sdk": {
+      "optional": true
+    },
+    "node-llama-cpp": {
       "optional": true
     },
     "ollama": {
       "optional": true
+    },
+    "openai": {
+      "optional": true
     }
   },
   "dependencies": {
-    "@google/genai": "^2.10.0",
     "zod-to-json-schema": "^3.23.0"
   }
 }

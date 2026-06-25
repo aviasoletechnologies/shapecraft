@@ -14,6 +14,10 @@ declare module "@anthropic-ai/sdk" {
   export default Anthropic;
 }
 
+declare module "@google/genai" {
+  export const GoogleGenAI: any;
+}
+
 declare module "node-llama-cpp" {
   export const getLlama: any;
   export const LlamaChatSession: any;

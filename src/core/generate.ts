@@ -1,11 +1,10 @@
-import { z } from "zod";
-import type { GenerateOptions, GenerateResult, ShapecraftModel } from "../types.js";
-import { MaxRetriesExceededError } from "../types.js";
+import type { GenerateOptions, GenerateResult, SchemaInput, ShapecraftModel } from "../types.js";
+import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
+import { validateOutput } from "./validate.js";
 
 export async function generate<T>(
   model: ShapecraftModel,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  schema: z.ZodType<any>,
+  schema: SchemaInput<T>,
   prompt: string,
   options: GenerateOptions = {}
 ): Promise<GenerateResult<T>> {
@@ -13,13 +12,16 @@ export async function generate<T>(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const data = await model.generate<T>(prompt, schema);
+      const raw = await model.generate<T>(prompt, schema);
+      const data = validateOutput<T>(raw, schema);
       return {
         data,
         guaranteeLevel: model.guaranteeLevel,
         attempts: attempt,
       };
     } catch (err) {
+      console.error(`[generate] attempt ${attempt} failed:`, err);
+      if (!(err instanceof SchemaViolationError)) throw err;
       if (attempt === maxRetries) break;
     }
   }

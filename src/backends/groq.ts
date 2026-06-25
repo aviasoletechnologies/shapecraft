@@ -1,7 +1,6 @@
-import { z } from "zod";
-import type { ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
+import type { SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
+import { parseRawResponse } from "../core/parse.js";
 
 export interface GroqBackendOptions {
   model?: string;
@@ -15,7 +14,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: z.ZodType<any>): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("groq-sdk").catch(() => {
         throw new Error("Install groq: npm install groq-sdk");
@@ -39,14 +38,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       const raw: string = response.choices[0]?.message?.content ?? "";
 
-      try {
-        const parsed = JSON.parse(raw);
-        const result = schema.safeParse(parsed);
-        if (!result.success) throw new SchemaViolationError(raw, result.error);
-        return result.data as T;
-      } catch (err) {
-        throw new SchemaViolationError(raw, err);
-      }
+      return parseRawResponse<T>(raw, schema);
     },
   };
 }

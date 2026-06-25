@@ -28,6 +28,11 @@ const PersonSchema = z.object({
   age: z.number(),
   email: z.string().email(),
 });
+const PersonSchema =  {
+  "name": 'string',
+  "age": 'number',
+  "email": 'string',
+};
 
 // OpenAI — native constrained (server-side)
 const model = openai({ model: "gpt-4o-mini" });
