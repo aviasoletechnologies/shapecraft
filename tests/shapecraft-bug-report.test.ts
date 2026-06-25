@@ -10,7 +10,7 @@
  * B1  FIXED  — non-schema errors were retried instead of thrown immediately
  * B2  OPEN   — GenerateOptions.systemPrompt silently ignored by all backends
  * B3  OPEN   — GenerateOptions.temperature silently ignored by all backends
- * B5  OPEN   — { pattern } schema on Groq always throws HTTP 400
+ * B5  FIXED  — { pattern } schema on Groq always throws HTTP 400
  * B6  OPEN   — Groq guaranteeLevel returns "native" but enforces nothing at API level
  * B8  OPEN   — z.number().optional() crashes when AI sends null
  */
@@ -108,34 +108,22 @@ describe("Library Bug Tests", () => {
     expect(r1.data.word.toLowerCase()).toBe(r2.data.word.toLowerCase());
   }, 30000);
 
-  // ─── B5: OPEN ──────────────────────────────────────────────────────────────
+  // ─── B5: FIXED ─────────────────────────────────────────────────────────────
   //
-  // BUG: groq.ts always sets response_format: { type: "json_object" } regardless
-  //   of schema type. PatternInput expects a plain string — no "json" in the prompt.
-  //   Groq rejects with 400 because json_object mode requires "json" in messages.
+  // FIX in groq.ts: response_format: json_object now only set for Zod/jsonSchema.
+  //   Skipped for PatternInput and ValidatorInput — Groq receives no format constraint.
   //
-  // ERROR thrown every call (not retriable):
-  //   BadRequestError: 400
-  //   "'messages' must contain the word 'json' in some form,
-  //    to use 'response_format' of type 'json_object'."
-  //
-  // FIX NEEDED in groq.ts:
-  //   Skip response_format for PatternInput and ValidatorInput schemas.
-  itLive("B5 — OPEN: { pattern } schema always throws 400 on Groq", async () => {
-    let thrownError: Error | null = null;
+  // WAS: BadRequestError: 400 "'messages' must contain the word 'json'..."
+  itLive("B5 — FIXED: { pattern } schema works on Groq without response_format", async () => {
+    const result = await generate(
+      model,
+      { pattern: /^\+?[1-9]\d{9,14}$/ },
+      "Call us at +919876543210. Extract the phone number. Return ONLY the phone number, nothing else."
+    );
 
-    try {
-      await generate(
-        model,
-        { pattern: /^\+?[1-9]\d{9,14}$/ },
-        "Call us at +919876543210. Extract the phone number."
-      );
-    } catch (err) {
-      thrownError = err as Error;
-    }
-
-    expect(thrownError).not.toBeNull();
-    console.log(`[B5] error: ${thrownError!.constructor.name}: ${thrownError!.message.slice(0, 120)}`);
+    console.log(`[B5] result: "${result.data}"`);
+    expect(typeof result.data).toBe("string");
+    expect(/^\+?[1-9]\d{9,14}$/.test(result.data as string)).toBe(true);
   }, 30000);
 
   // ─── B6: OPEN ──────────────────────────────────────────────────────────────
