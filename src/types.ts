@@ -11,7 +11,7 @@ export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternI
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
-  generate<T>(prompt: string, schema: SchemaInput<T>): Promise<T>;
+  generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T>;
 }
 
 export interface GenerateOptions {
