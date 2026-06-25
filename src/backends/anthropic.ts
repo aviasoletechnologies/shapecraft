@@ -25,7 +25,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
         apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       const response = await client.messages.create({
         model: modelId,

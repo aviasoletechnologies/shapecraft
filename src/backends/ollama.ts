@@ -17,7 +17,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     guaranteeLevel: "constrained",
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       // Pass JSON schema to Ollama's format param for constrained decoding when possible
       let format: unknown = undefined;

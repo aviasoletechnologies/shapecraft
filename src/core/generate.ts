@@ -9,6 +9,7 @@ export async function generate<T>(
   options: GenerateOptions = {}
 ): Promise<GenerateResult<T>> {
   const maxRetries = options.maxRetries ?? 3;
+  const { systemPrompt } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

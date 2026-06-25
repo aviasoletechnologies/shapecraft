@@ -29,7 +29,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
         baseURL: options.baseURL,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       // Use strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
       const responseFormat = isZodSchema(schema)

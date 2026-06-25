@@ -1,5 +1,6 @@
 import type { GenerateOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
+import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
 
 export interface GroqBackendOptions {
@@ -25,7 +26,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
         apiKey: options?.apiKey ?? process.env.GROQ_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       const response = await client.chat.completions.create({
         model: modelId,
@@ -33,7 +34,9 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: { type: "json_object" },
+        ...(isZodSchema(schema) || "jsonSchema" in (schema as object)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
         ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
       });
 
