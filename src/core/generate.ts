@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { GenerateOptions, GenerateResult, ShapecraftModel } from "../types.js";
-import { MaxRetriesExceededError } from "../types.js";
+import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 
 export async function generate<T>(
   model: ShapecraftModel,
@@ -20,6 +20,7 @@ export async function generate<T>(
         attempts: attempt,
       };
     } catch (err) {
+      if (!(err instanceof SchemaViolationError)) throw err;
       if (attempt === maxRetries) break;
     }
   }
