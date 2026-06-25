@@ -94,19 +94,18 @@ describe("Library Bug Tests", () => {
   //   groq.ts:     client.chat.completions.create({ ..., temperature: options?.temperature })
   //   anthropic.ts: client.messages.create({ ..., temperature: options?.temperature })
   //   gemini.ts:   generativeModel.generateContent({ ..., temperature: options?.temperature })
-  itLive("B3 — OPEN: temperature option silently ignored", async () => {
+  itLive("B3 — FIXED: temperature option wired to Groq API", async () => {
     const schema = z.object({ word: z.string() });
     const prompt = "Give me ONE random English word. Just the word, nothing else.";
 
-    const [r0, r1] = await Promise.all([
+    // temp=0 is deterministic — two calls must return the same word
+    const [r1, r2] = await Promise.all([
       generate(model, schema, prompt, { temperature: 0 }),
-      generate(model, schema, prompt, { temperature: 1 }),
+      generate(model, schema, prompt, { temperature: 0 }),
     ]);
 
-    console.log(`[B3] temp=0: "${r0.data.word}" | temp=1: "${r1.data.word}"`);
-    expect(typeof r0.data.word).toBe("string");
-    expect(typeof r1.data.word).toBe("string");
-    // When B3 is fixed, repeated temp=0 calls should return identical words.
+    console.log(`[B3] temp=0 run1: "${r1.data.word}" | temp=0 run2: "${r2.data.word}"`);
+    expect(r1.data.word.toLowerCase()).toBe(r2.data.word.toLowerCase());
   }, 30000);
 
   // ─── B5: OPEN ──────────────────────────────────────────────────────────────
