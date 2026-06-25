@@ -1,24 +1,13 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { generate } from "../src/core/generate.js";
-import type { ShapecraftModel } from "../src/types.js";
-import { SchemaViolationError } from "../src/types.js";
+import { anthropic } from "../src/backends/anthropic.js";
+import { mockModel } from "./helpers/index.js";
 
 const PersonSchema = z.object({
   name: z.string(),
   age: z.number(),
 });
-
-function mockModel(returnValue: unknown, shouldFail = false): ShapecraftModel {
-  return {
-    id: "mock:test",
-    guaranteeLevel: "constrained",
-    async generate<T>(): Promise<T> {
-      if (shouldFail) throw new SchemaViolationError("bad", "invalid");
-      return returnValue as T;
-    },
-  };
-}
 
 describe("generate", () => {
   it("returns data on success", async () => {
@@ -29,11 +18,36 @@ describe("generate", () => {
     expect(result.guaranteeLevel).toBe("constrained");
   });
 
-  it("retries on failure and throws MaxRetriesExceededError", async () => {
+  it("retries on SchemaViolationError and throws MaxRetriesExceededError", async () => {
     const model = mockModel(null, true);
     const { MaxRetriesExceededError } = await import("../src/types.js");
     await expect(
       generate(model, PersonSchema, "get person", { maxRetries: 2 })
     ).rejects.toBeInstanceOf(MaxRetriesExceededError);
   });
+
+  it("re-throws non-schema errors immediately without retrying", async () => {
+    let calls = 0;
+    const model = {
+      id: "mock:test",
+      guaranteeLevel: "constrained" as const,
+      async generate<T>(): Promise<T> {
+        calls++;
+        throw new Error("network failure");
+      },
+    };
+    await expect(
+      generate(model, PersonSchema, "get person", { maxRetries: 3 })
+    ).rejects.toThrow("network failure");
+    expect(calls).toBe(1);
+  });
+});
+
+describe("anthropic integration", () => {
+  it("returns structured data from real API", async () => {
+    const model = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001" });
+    const result = await generate(model, PersonSchema, "Alice is 30 years old");
+    expect(result.data).toMatchObject({ name: expect.any(String), age: expect.any(Number) });
+    expect(result.guaranteeLevel).toBe("best-effort");
+  }, 30000);
 });
