@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
 import { generate } from "../src/core/generate.js";
 import { anthropic } from "../src/backends/anthropic.js";
@@ -43,11 +43,27 @@ describe("generate", () => {
   });
 });
 
-describe.skipIf(!process.env.ANTHROPIC_API_KEY)("anthropic integration", () => {
-  it("returns structured data from real API", async () => {
-    const model = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001" });
+describe("anthropic integration", () => {
+  beforeEach(() => {
+    vi.mock("@anthropic-ai/sdk", () => ({
+      default: class {
+        messages = {
+          create: vi.fn().mockResolvedValue({
+            content: [{ type: "text", text: '{"name":"Alice","age":30}' }],
+          }),
+        };
+      },
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns structured data", async () => {
+    const model = anthropic({ apiKey: "mock-key", model: "claude-haiku-4-5-20251001" });
     const result = await generate(model, PersonSchema, "Alice is 30 years old");
     expect(result.data).toMatchObject({ name: expect.any(String), age: expect.any(Number) });
     expect(result.guaranteeLevel).toBe("best-effort");
-  }, 30000);
+  });
 });
