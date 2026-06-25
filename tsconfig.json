@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2020"],
+    "types": ["node"],
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "declaration": true,
