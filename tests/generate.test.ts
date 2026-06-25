@@ -43,7 +43,7 @@ describe("generate", () => {
   });
 });
 
-describe("anthropic integration", () => {
+describe.skipIf(!process.env.ANTHROPIC_API_KEY)("anthropic integration", () => {
   it("returns structured data from real API", async () => {
     const model = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001" });
     const result = await generate(model, PersonSchema, "Alice is 30 years old");
