@@ -25,9 +25,9 @@ export function buildStructuredPrompt(
     schemaInfo = "Respond with valid output as required.";
   }
 
-  const system =
-    systemPrompt ??
-    `You are a precise assistant. ${schemaInfo} No extra text, no markdown, no explanation.`;
+  const system = systemPrompt
+    ? `${systemPrompt}\n\n${schemaInfo} No extra text, no markdown, no explanation.`
+    : `You are a precise assistant. ${schemaInfo} No extra text, no markdown, no explanation.`;
 
   return { system, user: prompt };
 }
