@@ -6,6 +6,17 @@ export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
   return schema instanceof z.ZodType;
 }
 
+function nullToUndefined(value: unknown): unknown {
+  if (value === null) return undefined;
+  if (Array.isArray(value)) return value.map(nullToUndefined);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, nullToUndefined(v)])
+    );
+  }
+  return value;
+}
+
 function checkJsonSchema(value: unknown, schema: Record<string, unknown>): void {
   const type = schema.type as string | undefined;
 
@@ -45,7 +56,7 @@ function checkJsonSchema(value: unknown, schema: Record<string, unknown>): void 
 
 export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
   if (isZodSchema(schema)) {
-    const result = schema.safeParse(output);
+    const result = schema.safeParse(nullToUndefined(output));
     if (!result.success) throw new SchemaViolationError(JSON.stringify(output), result.error);
     return result.data;
   }
