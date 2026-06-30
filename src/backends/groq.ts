@@ -1,5 +1,6 @@
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { GenerateOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
+import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
 
 export interface GroqBackendOptions {
@@ -12,9 +13,9 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
   return {
     id: `groq:${modelId}`,
-    guaranteeLevel: "native",
+    guaranteeLevel: "best-effort",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("groq-sdk").catch(() => {
         throw new Error("Install groq: npm install groq-sdk");
@@ -22,10 +23,10 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       const Groq = mod.default ?? mod;
       const client = new Groq({
-        apiKey: options.apiKey ?? process.env.GROQ_API_KEY,
+        apiKey: options?.apiKey ?? process.env.GROQ_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       const response = await client.chat.completions.create({
         model: modelId,
@@ -33,7 +34,10 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: { type: "json_object" },
+        ...(isZodSchema(schema) || "jsonSchema" in (schema as object)
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
+        ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";

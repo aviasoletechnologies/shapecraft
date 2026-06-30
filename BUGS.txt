@@ -1,0 +1,206 @@
+================================================================================
+  @aviasole/shapecraft — Confirmed Library Bugs
+  Generated: 2026-06-25
+================================================================================
+
+SCOPE: Only real library code defects. AI behaviour patterns (model returns null,
+  model ignores instructions) are NOT bugs in this library — they are model
+  limitations. This file tracks failures caused by code in src/.
+
+--------------------------------------------------------------------------------
+B1 — FIXED: Non-schema errors retried instead of thrown immediately
+--------------------------------------------------------------------------------
+File:    src/core/generate.ts
+Status:  FIXED (commit: 6376484)
+
+What broke:
+  Any non-recoverable error (AuthenticationError, RateLimitError, network failure)
+  was silently retried up to maxRetries times before surfacing.
+  A bad API key wasted 3 API calls before throwing.
+
+Error thrown (before fix):
+  MaxRetriesExceededError: All 3 attempts failed
+    Attempt 1: AuthenticationError: 401 Invalid API Key
+    Attempt 2: AuthenticationError: 401 Invalid API Key
+    Attempt 3: AuthenticationError: 401 Invalid API Key
+
+Error thrown (after fix):
+  AuthenticationError: 401 {"error":{"code":"invalid_api_key",...}}
+  — thrown immediately, ~130ms, no retries.
+
+Root cause:
+  generate.ts catch block caught all errors and continued the retry loop.
+  Only SchemaViolationError should be retried.
+
+Fix applied:
+  if (!(err instanceof SchemaViolationError)) throw err;
+
+--------------------------------------------------------------------------------
+B2 — OPEN: GenerateOptions.systemPrompt silently ignored
+--------------------------------------------------------------------------------
+File:    src/backends/groq.ts, src/backends/anthropic.ts
+Status:  OPEN
+
+What broke:
+  GenerateOptions interface declares systemPrompt?: string.
+  No backend reads or sends it. Users set it, nothing changes.
+
+Silent misbehaviour:
+  systemPrompt: "Always respond ONLY in Spanish."
+  Result: AI returns English — no error, no warning.
+
+Proof (from test B2):
+  result.data.greeting === "hello world"   ← English, not Spanish
+
+Root cause:
+  groq.ts:     messages array only contains user message. systemPrompt never prepended.
+  anthropic.ts: client.messages.create() never passes system: options.systemPrompt.
+
+Fix needed:
+  groq.ts:
+    const messages = [
+      ...(options?.systemPrompt ? [{ role: "system", content: options.systemPrompt }] : []),
+      { role: "user", content: prompt }
+    ];
+  anthropic.ts:
+    client.messages.create({ ..., system: options?.systemPrompt })
+
+--------------------------------------------------------------------------------
+B3 — OPEN: GenerateOptions.temperature silently ignored
+--------------------------------------------------------------------------------
+File:    src/backends/groq.ts, src/backends/anthropic.ts
+Status:  OPEN
+
+What broke:
+  GenerateOptions interface declares temperature?: number.
+  No backend reads or sends it.
+
+Impact:
+  Apps setting temperature: 0 for deterministic output get random results.
+  Apps setting temperature: 1 for creative output get default (0.7) results.
+  No error raised — silent wrong behaviour.
+
+Proof (from test B3):
+  temperature: 0 and temperature: 1 both produce backend default behaviour.
+
+Root cause:
+  groq.ts:     client.chat.completions.create() never includes temperature field.
+  anthropic.ts: client.messages.create() never includes temperature field.
+
+Fix needed:
+  groq.ts:
+    client.chat.completions.create({
+      ...,
+      temperature: options?.temperature,
+    })
+  Repeat for each backend.
+
+--------------------------------------------------------------------------------
+B5 — OPEN: { pattern } schema always throws HTTP 400 on Groq
+--------------------------------------------------------------------------------
+File:    src/backends/groq.ts
+Status:  OPEN
+
+What broke:
+  Any generate() call with a PatternInput schema crashes on Groq.
+  Pattern schema is a documented SchemaInput type — it must work.
+
+Error thrown every call:
+  BadRequestError: 400
+  "'messages' must contain the word 'json' in some form,
+   to use 'response_format' of type 'json_object'."
+
+Root cause:
+  groq.ts unconditionally sets response_format: { type: "json_object" }.
+  PatternInput builds a plain-string system prompt (no "json" word).
+  Groq rejects: json_object mode requires "json" in message text.
+
+Fix needed in groq.ts:
+  Only set json_object mode for Zod / JsonSchemaInput.
+  For PatternInput and ValidatorInput: omit response_format entirely.
+
+  Example:
+    const isJsonSchema = schema.type === "zod" || schema.type === "json";
+    const requestBody = {
+      ...,
+      ...(isJsonSchema ? { response_format: { type: "json_object" } } : {}),
+    };
+
+--------------------------------------------------------------------------------
+B6 — OPEN: groq backend returns guaranteeLevel: "native" — false claim
+--------------------------------------------------------------------------------
+File:    src/backends/groq.ts
+Status:  OPEN
+
+What broke:
+  generate() result carries guaranteeLevel: "native" for all Groq calls.
+  "native" implies the API enforces the schema constraints at transport level.
+  Groq enforces only: output is valid JSON. Nothing else.
+  Min/max values, enum membership, required fields — all enforced by Zod
+  post-generation, not by Groq. The "native" label is a lie.
+
+Proof (from test B6):
+  Zod schema: z.number().min(1).max(10) + z.enum(["low","medium","high"])
+  result.guaranteeLevel === "native"   ← incorrect
+
+Impact:
+  Callers who read guaranteeLevel to decide whether to trust output
+  get a false confidence signal. Groq can and does return field-violating
+  output that Zod catches — meaning retries happen on "native" mode.
+
+Fix needed in groq.ts:
+  Change return value:
+    return { data, attempts, guaranteeLevel: "best-effort" };
+
+--------------------------------------------------------------------------------
+B8 — OPEN: z.number().optional() incompatible with AI JSON output
+--------------------------------------------------------------------------------
+File:    src/core/validate.ts (or document in types.ts)
+Status:  OPEN
+
+What broke:
+  z.number().optional() means: value is number | undefined.
+  JSON has no undefined. LLMs always emit null for absent numeric fields.
+  Zod rejects null as "Expected number, received null". Retries never fix
+  it because the model always sends null — crash is guaranteed.
+
+Error thrown after maxRetries:
+  MaxRetriesExceededError: All 3 attempts failed
+    SchemaViolationError: Model output failed schema validation
+      ZodError: [{"expected":"number","received":"null","path":["endYear"]}]
+    raw: '{"name":"Jane","endYear":null}'
+
+Root cause:
+  JSON null !== JS undefined. z.optional() only allows undefined, not null.
+  AI sends null. Zod rejects. Retry. AI sends null again. 3× crash.
+
+Workaround (confirmed working):
+  Use z.number().nullable().optional() instead.
+  Accepts: number | null | undefined.
+  AI sends null → accepted. undefined never comes from JSON → irrelevant.
+
+Fix options:
+  Option A (library fix):
+    In validate.ts, before Zod parse: walk JSON output and coerce null → undefined
+    for fields where schema is ZodOptional (not ZodNullable).
+  Option B (documentation):
+    Document prominently: "always use .nullable().optional() for optional numbers/dates.
+    z.number().optional() will crash — AI cannot emit JS undefined in JSON."
+
+================================================================================
+NOT BUGS — AI BEHAVIOUR PATTERNS (excluded from this file)
+================================================================================
+
+These are real issues developers hit, but they are caused by model behaviour,
+not by library code. The library cannot fix them.
+
+P1  AI sends null for absent optional fields    → use .nullable().optional() (B8 workaround)
+P2  AI omits required fields                    → model choice, not library bug
+P3  AI ignores schema constraints (wrong range) → retry loop handles it
+P4  AI sends wrong enum value                   → retry loop handles it
+P5  AI sends "" for absent string fields        → model choice
+P6  AI halluccinates extra fields               → Zod strips them (passthrough mode)
+P7  AI uses wrong date format                   → prompt engineering, not library
+P8  AI numeric coercion ("$1,200" → 1200)      → model choice, works on good models
+
+================================================================================

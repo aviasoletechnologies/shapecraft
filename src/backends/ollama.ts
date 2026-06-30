@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { GenerateOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
@@ -16,8 +16,8 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
-      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+    async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       // Pass JSON schema to Ollama's format param for constrained decoding when possible
       let format: unknown = undefined;
@@ -37,6 +37,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
             { role: "user", content: user },
           ],
           ...(format ? { format } : {}),
+          ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
           stream: false,
         }),
       });

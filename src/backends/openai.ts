@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { GenerateOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
@@ -17,7 +17,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, genOptions?: GenerateOptions): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("openai").catch(() => {
         throw new Error("Install openai: npm install openai");
@@ -29,7 +29,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
         baseURL: options.baseURL,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+      const { system, user } = buildStructuredPrompt(prompt, schema, genOptions?.systemPrompt);
 
       // Use strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
       const responseFormat = isZodSchema(schema)
@@ -51,6 +51,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
           { role: "user", content: user },
         ],
         response_format: responseFormat,
+        ...(genOptions?.temperature !== undefined ? { temperature: genOptions.temperature } : {}),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";

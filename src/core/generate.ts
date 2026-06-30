@@ -13,7 +13,7 @@ export async function generate<T>(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const raw = await model.generate<T>(prompt, schema, systemPrompt);
+      const raw = await model.generate<T>(prompt, schema, options);
       const data = validateOutput<T>(raw, schema);
       return {
         data,
