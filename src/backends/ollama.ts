@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { SchemaInput, ShapecraftModel } from "../types.js";
-import { SchemaViolationError, isRegexInput } from "../types.js";
-import { resolveJsonSchema, buildStructuredPrompt, validateOutput } from "../core/schema.js";
+import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
+import { isZodSchema } from "../core/validate.js";
+import { parseAndValidate } from "../core/parse.js";
 
 export interface OllamaBackendOptions {
   model: string;
@@ -15,28 +16,29 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
 
-    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
-      const { system, user } = buildStructuredPrompt(prompt, schema);
-      const jsonSchema = resolveJsonSchema(schema);
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const body: Record<string, unknown> = {
-        model: options.model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        stream: false,
-      };
-
-      // Ollama supports JSON schema grammar constraint for non-regex schemas
-      if (!isRegexInput(schema) && jsonSchema !== null) {
-        body.format = jsonSchema;
+      // Pass JSON schema to Ollama's format param for constrained decoding when possible
+      let format: unknown = undefined;
+      if (isZodSchema(schema)) {
+        format = toJsonSchema(schema as z.ZodType<any>);
+      } else if ("jsonSchema" in (schema as object)) {
+        format = (schema as { jsonSchema: Record<string, unknown> }).jsonSchema;
       }
 
       const response = await fetch(`${host}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          model: options.model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          ...(format ? { format } : {}),
+          stream: false,
+        }),
       });
 
       if (!response.ok) {
@@ -46,11 +48,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
       const json = await response.json() as { message?: { content?: string } };
       const raw = json.message?.content ?? "";
 
-      try {
-        return validateOutput<T>(raw, schema);
-      } catch (err) {
-        throw new SchemaViolationError(raw, err);
-      }
+      return parseAndValidate<T>(raw, schema);
     },
   };
 }

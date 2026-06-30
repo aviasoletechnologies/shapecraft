@@ -1,7 +1,6 @@
-import { z } from "zod";
 import type { SchemaInput, ShapecraftModel } from "../types.js";
-import { SchemaViolationError, isRegexInput } from "../types.js";
-import { buildStructuredPrompt, validateOutput } from "../core/schema.js";
+import { buildStructuredPrompt } from "../core/schema.js";
+import { parseAndValidate } from "../core/parse.js";
 
 export interface GroqBackendOptions {
   model?: string;
@@ -15,7 +14,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
 
-    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("groq-sdk").catch(() => {
         throw new Error("Install groq: npm install groq-sdk");
@@ -26,29 +25,20 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
         apiKey: options.apiKey ?? process.env.GROQ_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const requestBody: Record<string, unknown> = {
+      const response = await client.chat.completions.create({
         model: modelId,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-      };
+        response_format: { type: "json_object" },
+      });
 
-      // Groq JSON mode only for non-regex schemas
-      if (!isRegexInput(schema)) {
-        requestBody.response_format = { type: "json_object" };
-      }
-
-      const response = await client.chat.completions.create(requestBody);
       const raw: string = response.choices[0]?.message?.content ?? "";
 
-      try {
-        return validateOutput<T>(raw, schema);
-      } catch (err) {
-        throw new SchemaViolationError(raw, err);
-      }
+      return parseAndValidate<T>(raw, schema);
     },
   };
 }

@@ -2,36 +2,16 @@ import { z } from "zod";
 
 export type GuaranteeLevel = "constrained" | "native" | "best-effort";
 
-/** Zod schema */
-export type ZodSchema = z.ZodType<any>;
-
-/** Raw JSON Schema object */
-export interface JsonSchemaInput {
-  jsonSchema: Record<string, unknown>;
-}
-
-/** Regex pattern — model must return string matching pattern */
-export interface RegexInput {
-  pattern: RegExp | string;
-}
-
-/** Custom validator function */
-export interface CustomValidatorInput {
-  validate: (output: unknown) => boolean;
-  /** Optional JSON schema hint to guide the model */
-  hint?: Record<string, unknown>;
-}
-
-export type SchemaInput =
-  | ZodSchema
-  | JsonSchemaInput
-  | RegexInput
-  | CustomValidatorInput;
+export type JsonSchemaInput = { jsonSchema: Record<string, unknown> };
+export type PatternInput = { pattern: RegExp };
+export type ValidatorInput = { validate: (output: unknown) => boolean };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput;
 
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
-  generate<T>(prompt: string, schema: SchemaInput): Promise<T>;
+  generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T>;
 }
 
 export interface GenerateOptions {
@@ -61,21 +41,4 @@ export class MaxRetriesExceededError extends Error {
     super(`Schema validation failed after ${attempts} attempts`);
     this.name = "MaxRetriesExceededError";
   }
-}
-
-// Type guards
-export function isZodSchema(s: SchemaInput): s is ZodSchema {
-  return typeof (s as any).safeParse === "function";
-}
-
-export function isJsonSchemaInput(s: SchemaInput): s is JsonSchemaInput {
-  return typeof (s as any).jsonSchema === "object";
-}
-
-export function isRegexInput(s: SchemaInput): s is RegexInput {
-  return (s as any).pattern instanceof RegExp || typeof (s as any).pattern === "string";
-}
-
-export function isCustomValidatorInput(s: SchemaInput): s is CustomValidatorInput {
-  return typeof (s as any).validate === "function";
 }

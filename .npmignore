@@ -1,0 +1,9 @@
+node_modules
+src
+*.test.ts
+*.spec.ts
+tsup.config.ts
+tsconfig.json
+vitest.config.ts
+.eslintrc*
+.prettierrc*

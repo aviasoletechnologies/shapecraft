@@ -1,7 +1,6 @@
-import { z } from "zod";
 import type { SchemaInput, ShapecraftModel } from "../types.js";
-import { SchemaViolationError } from "../types.js";
-import { buildStructuredPrompt, validateOutput } from "../core/schema.js";
+import { buildStructuredPrompt } from "../core/schema.js";
+import { parseAndValidate } from "../core/parse.js";
 
 export interface AnthropicBackendOptions {
   model?: string;
@@ -15,7 +14,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
     id: `anthropic:${modelId}`,
     guaranteeLevel: "best-effort",
 
-    async generate<T>(prompt: string, schema: SchemaInput): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod: any = await import("@anthropic-ai/sdk").catch(() => {
         throw new Error("Install sdk: npm install @anthropic-ai/sdk");
@@ -26,7 +25,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
         apiKey: options.apiKey ?? process.env.ANTHROPIC_API_KEY,
       });
 
-      const { system, user } = buildStructuredPrompt(prompt, schema);
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
       const response = await client.messages.create({
         model: modelId,
@@ -38,11 +37,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
       const raw: string =
         response.content[0]?.type === "text" ? response.content[0].text : "";
 
-      try {
-        return validateOutput<T>(raw, schema);
-      } catch (err) {
-        throw new SchemaViolationError(raw, err);
-      }
+      return parseAndValidate<T>(raw, schema, { extractJson: true });
     },
   };
 }
