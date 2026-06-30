@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
 import { generate } from "../src/core/generate.js";
 import { anthropic } from "../src/backends/anthropic.js";
@@ -11,6 +11,24 @@ const ReplySchema = z.object({
 const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
 
 describe("systemPrompt forwarding", () => {
+  beforeEach(() => {
+    if (hasApiKey) {
+      vi.mock("@anthropic-ai/sdk", () => ({
+        default: class {
+          messages = {
+            create: vi.fn().mockResolvedValue({
+              content: [{ type: "text", text: '{"reply":"I only speak formally, good sir."}' }],
+            }),
+          };
+        },
+      }));
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("system prompt influences model response", async () => {
     const model = hasApiKey
       ? anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-4-5-20251001" })
