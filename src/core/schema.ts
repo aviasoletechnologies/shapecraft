@@ -21,8 +21,10 @@ export function buildStructuredPrompt(
     schemaInfo = `Respond with valid JSON matching this schema exactly:\n\n${JSON.stringify(schema.jsonSchema, null, 2)}`;
   } else if ("pattern" in schema) {
     schemaInfo = `Respond with a plain string matching this pattern: ${schema.pattern}`;
+  } else if ("validate" in schema && schema.hint) {
+    schemaInfo = `Respond with valid JSON matching this schema exactly:\n\n${JSON.stringify(schema.hint, null, 2)}`;
   } else {
-    schemaInfo = "Respond with valid output as required.";
+    schemaInfo = "Respond with valid JSON. No extra text, no markdown.";
   }
 
   const system = systemPrompt
