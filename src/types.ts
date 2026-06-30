@@ -4,7 +4,7 @@ export type GuaranteeLevel = "constrained" | "native" | "best-effort";
 
 export type JsonSchemaInput = { jsonSchema: Record<string, unknown> };
 export type PatternInput = { pattern: RegExp };
-export type ValidatorInput = { validate: (output: unknown) => boolean };
+export type ValidatorInput = { validate: (output: unknown) => boolean; hint?: Record<string, unknown> };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput;
 
