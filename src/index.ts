@@ -5,6 +5,7 @@ export * from "./backends/index.js";
 
 export type {
   ShapecraftModel,
+  SchemaInput,
   GenerateOptions,
   GenerateResult,
   GuaranteeLevel,

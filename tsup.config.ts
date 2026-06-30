@@ -8,4 +8,5 @@ export default defineConfig({
   clean: true,
   splitting: false,
   treeshake: true,
+  external: ["zod", "zod-to-json-schema"],
 });
