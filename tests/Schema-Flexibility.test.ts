@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import { generate } from "../src/core/generate.js";
 import { SchemaViolationError, MaxRetriesExceededError } from "../src/types.js";
 import type { ShapecraftModel } from "../src/types.js";
@@ -111,5 +112,33 @@ describe("Schema Flexibility — Custom validator function", () => {
       "get array"
     );
     expect(seen[0]).toEqual([1, 2, 3]);
+  });
+});
+
+// ─── Zod null coercion (B8) ───────────────────────────────────────────────────
+
+describe("Schema Flexibility — null coercion for optional Zod fields", () => {
+  it("treats null as undefined for z.number().optional()", async () => {
+    const schema = z.object({ name: z.string(), age: z.number().optional() });
+    const model = mockModel({ name: "Alice", age: null });
+    const result = await generate(model, schema, "get person");
+    expect(result.data.name).toBe("Alice");
+    expect(result.data.age).toBeUndefined();
+  });
+
+  it("treats null as undefined for z.string().optional()", async () => {
+    const schema = z.object({ id: z.number(), note: z.string().optional() });
+    const model = mockModel({ id: 1, note: null });
+    const result = await generate(model, schema, "get item");
+    expect(result.data.id).toBe(1);
+    expect(result.data.note).toBeUndefined();
+  });
+
+  it("still fails when a required field is null", async () => {
+    const schema = z.object({ name: z.string(), age: z.number() });
+    const model = mockModel({ name: "Alice", age: null });
+    await expect(
+      generate(model, schema, "get person", { maxRetries: 1 })
+    ).rejects.toThrow();
   });
 });
