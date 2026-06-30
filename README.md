@@ -1,6 +1,10 @@
 # @aviasole/shapecraft
 
-Structured output generation for LLMs in Node.js. Token-level constraints for local models, native JSON modes for cloud APIs — one unified Zod API.
+Structured output generation for LLMs in Node.js. Token-level constraints for local models, native JSON modes for cloud APIs — one unified API.
+
+[![npm](https://img.shields.io/npm/v/@aviasole/shapecraft)](https://www.npmjs.com/package/@aviasole/shapecraft)
+[![CI](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 ## Install
 
@@ -11,17 +15,17 @@ npm install @aviasole/shapecraft zod
 Install backend SDK as needed:
 
 ```bash
-npm install openai          # OpenAI
-npm install groq-sdk        # Groq
-npm install @anthropic-ai/sdk  # Anthropic
-# Ollama: no extra SDK, uses fetch
+npm install openai              # OpenAI
+npm install groq-sdk            # Groq
+npm install @anthropic-ai/sdk   # Anthropic
+# Ollama: no extra SDK needed
 ```
 
-## Usage
+## Quick Start
 
 ```typescript
 import { z } from "zod";
-import { generate, openai, ollama, anthropic, groq } from "@aviasole/shapecraft";
+import { generate, openai } from "@aviasole/shapecraft";
 
 const PersonSchema = z.object({
   name: z.string(),
@@ -29,34 +33,86 @@ const PersonSchema = z.object({
   email: z.string().email(),
 });
 
-// OpenAI — native constrained (server-side)
 const model = openai({ model: "gpt-4o-mini" });
 
-const result = await generate(model, PersonSchema, "Extract person info: John Doe, 32, john@example.com");
+const result = await generate(model, PersonSchema, "Extract: John Doe, 32, john@example.com");
 
-console.log(result.data);          // { name: "John Doe", age: 32, email: "john@example.com" }
+console.log(result.data);           // { name: "John Doe", age: 32, email: "john@example.com" }
 console.log(result.guaranteeLevel); // "native"
 console.log(result.attempts);       // 1
 ```
 
+## Schema Inputs
+
+Shapecraft accepts four schema types — not just Zod.
+
+### Zod Schema
+
+```typescript
+import { z } from "zod";
+
+const schema = z.object({ name: z.string(), score: z.number() });
+const result = await generate(model, schema, prompt);
+```
+
+### Raw JSON Schema
+
+```typescript
+const result = await generate(model, {
+  jsonSchema: {
+    type: "object",
+    properties: { name: { type: "string" }, score: { type: "number" } },
+    required: ["name", "score"],
+  },
+}, prompt);
+```
+
+### Regex Pattern
+
+```typescript
+// Model must return a string matching the pattern
+const result = await generate(model, {
+  pattern: /^\d{4}-\d{2}-\d{2}$/,
+}, "What is today's date?");
+
+console.log(result.data); // "2025-01-15"
+```
+
+### Custom Validator
+
+```typescript
+const result = await generate(model, {
+  validate: (output) => typeof output === "object" && output !== null && "id" in output,
+  hint: { type: "object", properties: { id: { type: "string" } } },
+}, prompt);
+```
+
 ## Backends & Guarantee Levels
 
-| Backend | Guarantee | Notes |
+| Backend | Guarantee | Mechanism |
 |---|---|---|
-| `ollama()` | `constrained` | Token-level via GBNF grammar |
 | `openai()` | `native` | Server-side strict JSON schema |
 | `groq()` | `native` | JSON mode |
+| `ollama()` | `constrained` | Token-level GBNF grammar |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
 
 ```typescript
-// Ollama — true token-level constraint (local model)
-const local = ollama({ model: "llama3.2" });
+import { openai, groq, ollama, anthropic } from "@aviasole/shapecraft";
 
-// Anthropic — best-effort with auto-retry
-const claude = anthropic({ model: "claude-sonnet-4-6", maxRetries: 3 });
+const gpt    = openai({ model: "gpt-4o-mini" });
+const fast   = groq({ model: "llama-3.3-70b-versatile" });
+const local  = ollama({ model: "llama3.2" });
+const claude = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
+```
 
-// Groq — fast native JSON mode
-const fast = groq({ model: "llama-3.3-70b-versatile" });
+## Options
+
+```typescript
+const result = await generate(model, schema, prompt, {
+  maxRetries: 3,        // default: 2
+  temperature: 0.2,
+  systemPrompt: "You are a data extraction assistant.",
+});
 ```
 
 ## Error Handling
@@ -72,6 +128,7 @@ try {
   }
   if (err instanceof SchemaViolationError) {
     console.error("Raw output:", err.raw);
+    console.error("Errors:", err.validationErrors);
   }
 }
 ```
