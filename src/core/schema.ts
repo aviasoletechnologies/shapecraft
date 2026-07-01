@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SchemaInput, ValidatorInput } from "../types.js";
+import { buildXmlSystemPrompt } from "./xml.js";
+import { isXmlInput } from "./validate.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function toJsonSchema(schema: z.ZodType<any>): Record<string, unknown> {
@@ -21,6 +23,8 @@ export function buildStructuredPrompt(
     schemaInfo = `Respond with valid JSON matching this schema exactly:\n\n${JSON.stringify(schema.jsonSchema, null, 2)}`;
   } else if ("pattern" in schema) {
     schemaInfo = `Respond with a plain string matching this pattern: ${schema.pattern}`;
+  } else if (isXmlInput(schema)) {
+    schemaInfo = buildXmlSystemPrompt(schema);
   } else if ("validate" in schema && (schema as ValidatorInput).hint) {
     schemaInfo = `Respond with valid JSON matching this schema exactly:\n\n${JSON.stringify((schema as ValidatorInput).hint, null, 2)}`;
   } else {

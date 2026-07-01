@@ -9,6 +9,11 @@ export type {
   GenerateOptions,
   GenerateResult,
   GuaranteeLevel,
+  XmlObjectInput,
+  XmlTemplateInput,
+  XmlFields,
+  XmlFieldDef,
+  XmlFieldType,
 } from "./types.js";
 
 export { SchemaViolationError, MaxRetriesExceededError } from "./types.js";
