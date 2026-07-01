@@ -1,42 +1,11 @@
-import { XMLParser } from "fast-xml-parser";
-import type { XmlObjectInput, XmlTemplateInput, XmlFields, XmlFieldDef } from "../types.js";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
+import type { XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-
-// ─── Template builder (Option A → template string) ───────────────────────────
-
-function fieldDefToXml(name: string, def: XmlFieldDef, indent: string): string {
-  if (typeof def === "string") {
-    return `${indent}<${name}>{${def}}</${name}>`;
-  }
-  if (def.type === "object") {
-    const inner = fieldsToXml(def.fields, indent + "  ");
-    return `${indent}<${name}>\n${inner}\n${indent}</${name}>`;
-  }
-  if (def.type === "array") {
-    const inner = fieldsToXml(def.items, indent + "    ");
-    return `${indent}<${name}>\n${indent}  <item>\n${inner}\n${indent}  </item>\n${indent}</${name}>`;
-  }
-  return `${indent}<${name}>{${def.type}}</${name}>`;
-}
-
-function fieldsToXml(fields: XmlFields, indent: string): string {
-  return Object.entries(fields)
-    .map(([name, def]) => fieldDefToXml(name, def, indent))
-    .join("\n");
-}
-
-export function xmlObjectToTemplate(input: XmlObjectInput): string {
-  const { root, fields } = input.xmlObject;
-  const inner = fieldsToXml(fields, "  ");
-  return `<${root}>\n${inner}\n</${root}>`;
-}
 
 // ─── System prompt injection ──────────────────────────────────────────────────
 
-export function buildXmlSystemPrompt(schema: XmlObjectInput | XmlTemplateInput): string {
-  const template =
-    "xmlObject" in schema ? xmlObjectToTemplate(schema) : schema.xmlTemplate;
-  return `Respond with valid XML exactly matching this structure. Replace placeholder values like {string}, {number}, {boolean} with actual values. No extra text, no markdown, no explanation.\n\n${template}`;
+export function buildXmlSystemPrompt(schema: XmlInput): string {
+  return `Respond with valid XML exactly matching this structure. Replace placeholder values like {string}, {number}, {boolean} with actual values. No extra text, no markdown, no explanation.\n\n${schema.xml.template}`;
 }
 
 // ─── XML parser ───────────────────────────────────────────────────────────────
@@ -49,8 +18,23 @@ const parser = new XMLParser({
   trimValues: true,
 });
 
+export function cleanXml(raw: string): string {
+  return raw.trim().replace(/^```xml\s*/i, "").replace(/```\s*$/, "").trim();
+}
+
 export function parseXml(raw: string, arrays?: string[]): Record<string, unknown> {
-  const cleaned = raw.trim().replace(/^```xml\s*/i, "").replace(/```\s*$/, "").trim();
+  const cleaned = cleanXml(raw);
+
+  // Opt-in debug: set SHAPECRAFT_DEBUG_XML=1 to log the raw model output.
+  if (process.env.SHAPECRAFT_DEBUG_XML) {
+    console.error("[shapecraft:xml] raw model output:\n" + raw);
+  }
+
+  // fast-xml-parser's parser is lenient, so validate well-formedness explicitly.
+  const valid = XMLValidator.validate(cleaned);
+  if (valid !== true) {
+    throw new SchemaViolationError(raw, `Invalid XML: ${valid.err?.msg ?? "malformed"}`);
+  }
 
   let parsed: Record<string, unknown>;
   try {
@@ -83,77 +67,43 @@ function normalizeArrays(obj: unknown, arrayPaths: string[], currentPath = ""): 
   }
 }
 
-// ─── Validation ───────────────────────────────────────────────────────────────
+// ─── Required-node validation ─────────────────────────────────────────────────
 
-function coerceField(value: unknown, type: string): unknown {
-  if (type === "number") return typeof value === "number" ? value : Number(value);
-  if (type === "boolean") {
-    if (typeof value === "boolean") return value;
-    if (value === "true") return true;
-    if (value === "false") return false;
-    return Boolean(value);
-  }
-  return String(value ?? "");
+function isNonEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0 && value.some(isNonEmpty);
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true; // numbers, booleans
 }
 
-function validateFields(obj: Record<string, unknown>, fields: XmlFields, path: string): void {
-  for (const [key, def] of Object.entries(fields)) {
-    const fieldPath = path ? `${path}.${key}` : key;
-    if (!(key in obj)) {
-      throw new Error(`Missing required field: <${fieldPath}>`);
-    }
-
-    const value = obj[key];
-    const type = typeof def === "string" ? def : def.type;
-
-    if (type === "object" && typeof def === "object" && def.type === "object") {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        throw new Error(`Expected object at <${fieldPath}>`);
-      }
-      validateFields(value as Record<string, unknown>, def.fields, fieldPath);
-    } else if (type === "array" && typeof def === "object" && def.type === "array") {
-      // Array items are emitted as repeated <item> tags, so the parser yields
-      // { item: [...] } (or { item: {...} } for a single entry). Unwrap that.
-      let raw: unknown = value;
-      if (raw && typeof raw === "object" && !Array.isArray(raw) && "item" in (raw as object)) {
-        raw = (raw as Record<string, unknown>).item;
-      }
-      const items = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
-      for (const item of items) {
-        if (typeof item !== "object" || item === null) {
-          throw new Error(`Expected object items in <${fieldPath}>`);
-        }
-        validateFields(item as Record<string, unknown>, def.items, fieldPath);
-      }
-      obj[key] = items;
-    } else if (type === "string" || type === "number" || type === "boolean") {
-      obj[key] = coerceField(value, type);
-    }
+/** True if `name` exists anywhere in the tree with a non-empty value. */
+function deepHasNonEmpty(obj: unknown, name: string): boolean {
+  if (typeof obj !== "object" || obj === null) return false;
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (key === name && isNonEmpty(value)) return true;
+    if (deepHasNonEmpty(value, name)) return true;
   }
+  return false;
 }
 
-export function validateXmlOutput<T>(
-  parsed: Record<string, unknown>,
-  schema: XmlObjectInput | XmlTemplateInput
-): T {
-  if ("xmlObject" in schema) {
-    const { root, fields } = schema.xmlObject;
-    const rootValue = parsed[root];
-    if (rootValue === undefined) {
-      throw new SchemaViolationError(JSON.stringify(parsed), `Missing root element <${root}>`);
+// ─── Output validation ────────────────────────────────────────────────────────
+
+export function validateXmlOutput<T>(parsed: Record<string, unknown>, schema: XmlInput): T {
+  const { required } = schema.xml;
+
+  if (required && required.length > 0) {
+    for (const name of required) {
+      if (!deepHasNonEmpty(parsed, name)) {
+        throw new SchemaViolationError(
+          JSON.stringify(parsed),
+          `Missing or empty required node: <${name}>`
+        );
+      }
     }
-    if (typeof rootValue !== "object" || rootValue === null) {
-      throw new SchemaViolationError(JSON.stringify(parsed), `Root element <${root}> must be an object`);
-    }
-    try {
-      validateFields(rootValue as Record<string, unknown>, fields, root);
-    } catch (err) {
-      throw new SchemaViolationError(JSON.stringify(parsed), err);
-    }
-    return rootValue as T;
   }
 
-  // xmlTemplate — no strict field validation, return root element or full parsed object
+  // Unwrap the single root element for the parse: true path.
   const keys = Object.keys(parsed);
   if (keys.length === 1) return parsed[keys[0]] as T;
   return parsed as T;

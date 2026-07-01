@@ -1,22 +1,14 @@
 import { z } from "zod";
-import type { SchemaInput, XmlObjectInput, XmlTemplateInput } from "../types.js";
+import type { SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { parseXml, validateXmlOutput } from "./xml.js";
+import { parseXml, validateXmlOutput, cleanXml } from "./xml.js";
 
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
   return schema instanceof z.ZodType;
 }
 
-export function isXmlObjectInput(schema: SchemaInput): schema is XmlObjectInput {
-  return typeof schema === "object" && schema !== null && "xmlObject" in schema;
-}
-
-export function isXmlTemplateInput(schema: SchemaInput): schema is XmlTemplateInput {
-  return typeof schema === "object" && schema !== null && "xmlTemplate" in schema;
-}
-
-export function isXmlInput(schema: SchemaInput): schema is XmlObjectInput | XmlTemplateInput {
-  return isXmlObjectInput(schema) || isXmlTemplateInput(schema);
+export function isXmlInput(schema: SchemaInput): schema is XmlInput {
+  return typeof schema === "object" && schema !== null && "xml" in schema;
 }
 
 function nullToUndefined(value: unknown): unknown {
@@ -100,10 +92,10 @@ export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
 
   if (isXmlInput(schema)) {
     if (typeof output === "string") {
-      // raw XML string (e.g. from mock models) — parse and validate now
-      const arrays = "xmlTemplate" in schema ? schema.arrays : undefined;
-      const parsed = parseXml(output, arrays);
-      return validateXmlOutput<T>(parsed, schema);
+      // raw XML string (from mock models, or the default string path) — validate now
+      const parsed = parseXml(output, schema.xml.arrays);
+      const validated = validateXmlOutput<T>(parsed, schema);
+      return schema.xml.parse ? validated : (cleanXml(output) as unknown as T);
     }
     // already parsed by a real backend — pass through
     return output as T;

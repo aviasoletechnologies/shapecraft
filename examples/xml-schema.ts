@@ -1,50 +1,52 @@
 /**
- * Example: XML output — model returns XML, parsed into a typed JS object
+ * Example: XML output.
+ *
+ * You give an example XML template with {string}/{number}/{boolean} placeholders
+ * and the model fills it in. By default `result.data` is the validated XML string
+ * (the format you asked for); add `parse: true` to get a parsed object instead.
+ * Output is always validated as well-formed XML, and `required` nodes must be
+ * present and non-empty or the call retries.
  */
 import { generate, anthropic } from "@aviasole/shapecraft";
 
 const model = anthropic({ model: "claude-haiku-4-5-20251001" });
 
-// ── Option A: xmlObject — declare a root tag and typed fields ────────────────
-// Supports nested objects, arrays of objects, and string/number/boolean leaves.
-const company = await generate(
+// ── Default: XML string back ─────────────────────────────────────────────────
+const book = await generate(
   model,
   {
-    xmlObject: {
-      root: "company",
-      fields: {
-        name: "string",
-        founded: "number",
-        headquarters: { type: "object", fields: { city: "string", country: "string" } },
-        departments: {
-          type: "array",
-          items: {
-            name: "string",
-            headcount: "number",
-            lead: { type: "object", fields: { fullName: "string", yearsExperience: "number" } },
-          },
-        },
-      },
+    xml: {
+      template: `<book>\n  <title>{string}</title>\n  <author>{string}</author>\n  <year>{number}</year>\n</book>`,
+      required: ["title", "author"],
     },
   },
-  "Globex, founded 1989, HQ in Springfield, USA. Engineering has 42 people led " +
-    "by Jane Roe (12 yrs). Design has 8, led by Max Vane (7 yrs)."
+  'Extract: "Clean Code" by Robert C. Martin, 2008.'
 );
-console.log(company.data);
-// {
-//   name: "Globex",
-//   founded: 1989,
-//   headquarters: { city: "Springfield", country: "USA" },
-//   departments: [
-//     { name: "Engineering", headcount: 42, lead: { fullName: "Jane Roe", yearsExperience: 12 } },
-//     { name: "Design", headcount: 8, lead: { fullName: "Max Vane", yearsExperience: 7 } },
-//   ],
-// }
+console.log(book.data);
+// "<book>\n  <title>Clean Code</title>\n  <author>Robert C. Martin</author>\n  <year>2008</year>\n</book>"
 
-// ── Option B: xmlTemplate — give an example shape with {placeholder} values ───
+// ── Attributes & namespaces are reproduced verbatim ──────────────────────────
+const catalog = await generate(
+  model,
+  {
+    xml: {
+      template: `<xs:catalog xmlns:xs="http://example.com">\n  <xs:book id="{string}" available="{boolean}">\n    <xs:title lang="{string}">{string}</xs:title>\n    <xs:price currency="{string}">{number}</xs:price>\n  </xs:book>\n</xs:catalog>`,
+      required: ["xs:book", "xs:title", "xs:price"],
+    },
+  },
+  "Designing Data-Intensive Applications by Martin Kleppmann, ISBN 978-1-4493-7332-0, English, in stock, $54.99 USD."
+);
+console.log(catalog.data); // namespaced XML string with all attributes filled in
+
+// ── parse: true → typed object ───────────────────────────────────────────────
 const person = await generate(
   model,
-  { xmlTemplate: `<person>\n  <name>{string}</name>\n  <age>{number}</age>\n</person>` },
+  {
+    xml: {
+      template: `<person>\n  <name>{string}</name>\n  <age>{number}</age>\n</person>`,
+      parse: true,
+    },
+  },
   "Extract: John Doe, 35 years old."
 );
 console.log(person.data); // { name: "John Doe", age: 35 }

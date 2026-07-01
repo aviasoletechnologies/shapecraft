@@ -44,7 +44,7 @@ console.log(result.attempts);       // 1
 
 ## Schema Inputs
 
-Shapecraft accepts four schema types — not just Zod.
+Shapecraft accepts five schema types — not just Zod.
 
 ### Zod Schema
 
@@ -86,6 +86,65 @@ const result = await generate(model, {
   hint: { type: "object", properties: { id: { type: "string" } } },
 }, prompt);
 ```
+
+### XML
+
+You provide an example XML template with `{string}` / `{number}` / `{boolean}`
+placeholders — the model fills it in. By default `result.data` is the **validated
+XML string** (the format you asked for); add `parse: true` to get a parsed JS
+object instead. Either way the output is validated as well-formed XML, and any
+`required` nodes must be present and non-empty or the call retries.
+
+```typescript
+const result = await generate(model, {
+  xml: {
+    template: `<book>\n  <title>{string}</title>\n  <author>{string}</author>\n  <year>{number}</year>\n</book>`,
+    required: ["title", "author"],
+  },
+}, 'Extract: "Clean Code" by Robert C. Martin, 2008.');
+
+console.log(result.data);
+// "<book>\n  <title>Clean Code</title>\n  <author>Robert C. Martin</author>\n  <year>2008</year>\n</book>"
+```
+
+Anything you write in the template is reproduced verbatim — including
+**attributes** and **namespaces**, which fall out for free:
+
+```typescript
+const result = await generate(model, {
+  xml: {
+    template: `<book id="{string}" available="{boolean}">\n  <title lang="{string}">{string}</title>\n</book>`,
+    required: ["title"],
+  },
+}, "Effective TypeScript, ISBN 978-1-4920-5374-3, in stock, English.");
+
+// result.data → '<book id="978-1-4920-5374-3" available="true">\n  <title lang="en">Effective TypeScript</title>\n</book>'
+```
+
+The `xml` options:
+
+| Option | Purpose |
+|---|---|
+| `template` | example XML with `{string}` / `{number}` / `{boolean}` placeholders |
+| `required` | node names that must be present **and non-empty**, else retry (matched at any depth) |
+| `arrays` | node names to always coerce into arrays when `parse: true` |
+| `parse` | return the parsed object instead of the XML string |
+
+```typescript
+// parse: true → object
+const result = await generate(model, {
+  xml: {
+    template: `<person>\n  <name>{string}</name>\n  <age>{number}</age>\n</person>`,
+    parse: true,
+  },
+}, "Extract: John Doe, 35 years old.");
+
+console.log(result.data); // { name: "John Doe", age: 35 }
+```
+
+> XML is prompt-driven on all backends (no token-level constraint), so a capable
+> model gives the most reliable output on deeply nested templates. Use `required`
+> to guarantee the important nodes are actually filled in.
 
 ## Backends & Guarantee Levels
 

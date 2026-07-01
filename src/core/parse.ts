@@ -1,7 +1,7 @@
 import type { SchemaInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { isZodSchema, isXmlInput } from "./validate.js";
-import { parseXml, validateXmlOutput } from "./xml.js";
+import { parseXml, validateXmlOutput, cleanXml } from "./xml.js";
 
 export function parseAndValidate<T>(
   raw: string,
@@ -13,9 +13,10 @@ export function parseAndValidate<T>(
 
   // XML schemas — parse XML then validate structure
   if (isXmlInput(schema)) {
-    const arrays = "xmlTemplate" in schema ? schema.arrays : undefined;
-    const parsed = parseXml(raw, arrays);
-    return validateXmlOutput<T>(parsed, schema);
+    const parsed = parseXml(raw, schema.xml.arrays);
+    const validated = validateXmlOutput<T>(parsed, schema);
+    // Default: return the validated XML string. parse: true → return the parsed object.
+    return schema.xml.parse ? validated : (cleanXml(raw) as unknown as T);
   }
 
   try {

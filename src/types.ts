@@ -6,28 +6,21 @@ export type JsonSchemaInput = { jsonSchema: Record<string, unknown> };
 export type PatternInput = { pattern: RegExp };
 export type ValidatorInput = { validate: (output: unknown) => boolean; hint?: Record<string, unknown> };
 
-export type XmlFieldType = "string" | "number" | "boolean";
-export type XmlFieldDef =
-  | XmlFieldType
-  | { type: XmlFieldType }
-  | { type: "object"; fields: XmlFields }
-  | { type: "array"; items: XmlFields };
-export type XmlFields = Record<string, XmlFieldDef>;
-
-export type XmlObjectInput = {
-  xmlObject: {
-    root: string;
-    fields: XmlFields;
+export type XmlInput = {
+  xml: {
+    /** Example XML with {string} / {number} / {boolean} placeholders. */
+    template: string;
+    /** Node names that must be present and non-empty in the output, else retry. */
+    required?: string[];
+    /** Node names to always coerce into arrays when parsing. */
+    arrays?: string[];
+    /** Return the parsed object instead of the validated XML string (the default). */
+    parse?: boolean;
   };
 };
 
-export type XmlTemplateInput = {
-  xmlTemplate: string;
-  arrays?: string[];
-};
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlObjectInput | XmlTemplateInput;
+export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlInput;
 
 export interface ShapecraftModel {
   id: string;
