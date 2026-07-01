@@ -116,6 +116,58 @@ describe("validateXmlOutput", () => {
     expect(() => validateXmlOutput(parsed, schema)).toThrow();
   });
 
+  it("unwraps <item>-wrapped array of objects with nested fields", () => {
+    const parsed = {
+      company: {
+        name: "Globex",
+        founded: "1989",
+        departments: {
+          item: [
+            { name: "Engineering", headcount: "42", lead: { fullName: "Jane Roe", yearsExperience: "12" } },
+            { name: "Design", headcount: "8", lead: { fullName: "Max Vane", yearsExperience: "7" } },
+          ],
+        },
+      },
+    };
+    const schema: XmlObjectInput = {
+      xmlObject: {
+        root: "company",
+        fields: {
+          name: "string",
+          founded: "number",
+          departments: {
+            type: "array",
+            items: {
+              name: "string",
+              headcount: "number",
+              lead: { type: "object", fields: { fullName: "string", yearsExperience: "number" } },
+            },
+          },
+        },
+      },
+    };
+    const result = validateXmlOutput(parsed, schema) as any;
+    expect(Array.isArray(result.departments)).toBe(true);
+    expect(result.departments).toHaveLength(2);
+    expect(result.founded).toBe(1989);
+    expect(result.departments[0].headcount).toBe(42);
+    expect(result.departments[0].lead.yearsExperience).toBe(12);
+  });
+
+  it("single-item array still yields a one-element array", () => {
+    const parsed = { company: { tags: { item: { label: "solo" } } } };
+    const schema: XmlObjectInput = {
+      xmlObject: {
+        root: "company",
+        fields: { tags: { type: "array", items: { label: "string" } } },
+      },
+    };
+    const result = validateXmlOutput(parsed, schema) as any;
+    expect(Array.isArray(result.tags)).toBe(true);
+    expect(result.tags).toHaveLength(1);
+    expect(result.tags[0].label).toBe("solo");
+  });
+
   it("xmlTemplate returns root element", () => {
     const parsed = { book: { title: "Test", author: "Jane" } };
     const schema: XmlTemplateInput = { xmlTemplate: "<book><title>{string}</title></book>" };

@@ -112,7 +112,13 @@ function validateFields(obj: Record<string, unknown>, fields: XmlFields, path: s
       }
       validateFields(value as Record<string, unknown>, def.fields, fieldPath);
     } else if (type === "array" && typeof def === "object" && def.type === "array") {
-      const items = Array.isArray(value) ? value : [value];
+      // Array items are emitted as repeated <item> tags, so the parser yields
+      // { item: [...] } (or { item: {...} } for a single entry). Unwrap that.
+      let raw: unknown = value;
+      if (raw && typeof raw === "object" && !Array.isArray(raw) && "item" in (raw as object)) {
+        raw = (raw as Record<string, unknown>).item;
+      }
+      const items = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
       for (const item of items) {
         if (typeof item !== "object" || item === null) {
           throw new Error(`Expected object items in <${fieldPath}>`);
