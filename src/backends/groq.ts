@@ -1,6 +1,7 @@
 import type { SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
+import { isXmlInput } from "../core/validate.js";
 
 export interface GroqBackendOptions {
   model?: string;
@@ -33,7 +34,8 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: { type: "json_object" },
+        // XML schemas must not use json_object mode — Groq rejects it when prompt lacks "json"
+        ...(!isXmlInput(schema) ? { response_format: { type: "json_object" } } : {}),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";
