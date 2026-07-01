@@ -255,7 +255,9 @@ describe("Schema priority — Groq backend (real API)", () => {
 });
 
 describe("Schema priority — Ollama backend (real API)", () => {
-  const hasOllama = true;
+  // Opt-in: needs a running Ollama server. Set OLLAMA_MODEL to enable locally;
+  // skipped in CI where no Ollama is reachable on :11434.
+  const hasOllama = !!process.env.OLLAMA_MODEL;
   const ollamaModel = process.env.OLLAMA_MODEL ?? "nemotron-3-super:cloud";
 
   it.skipIf(!hasOllama)("schema arg enforced: returns SchemaA-shaped data", async () => {
