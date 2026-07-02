@@ -168,7 +168,7 @@ describe("Schema priority — validation always enforces schema argument", () =>
 // ─── Per-backend — real API calls, skipped when key not in .env ──────────────
 
 const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
-const hasOpenAI    = false; // OpenAI quota exceeded — re-enable when credits added
+const hasOpenAI    = !!process.env.OPENAI_API_KEY;
 const hasGroq      = !!process.env.GROQ_API_KEY;
 
 describe("Schema priority — Anthropic backend (real API)", () => {

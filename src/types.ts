@@ -16,6 +16,15 @@ export type XmlInput = {
     arrays?: string[];
     /** Return the parsed object instead of the validated XML string (the default). */
     parse?: boolean;
+    /** Keep an <?xml ...?> prolog if the model adds one (default: stripped). */
+    prolog?: boolean;
+    /**
+     * Force every non-placeholder (literal) value in the template to appear
+     * unchanged in the output, regardless of what the model returns for it.
+     * Re-serializes the output from a reconciled tree, so formatting
+     * (whitespace, attribute order) may differ from the model's raw text.
+     */
+    enforceLiterals?: boolean;
   };
 };
 

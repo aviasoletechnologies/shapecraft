@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { parseXml, validateXmlOutput, cleanXml } from "./xml.js";
+import { finalizeXmlOutput } from "./xml.js";
 
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
   return schema instanceof z.ZodType;
@@ -93,9 +93,7 @@ export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
   if (isXmlInput(schema)) {
     if (typeof output === "string") {
       // raw XML string (from mock models, or the default string path) — validate now
-      const parsed = parseXml(output, schema.xml.arrays);
-      const validated = validateXmlOutput<T>(parsed, schema);
-      return schema.xml.parse ? validated : (cleanXml(output) as unknown as T);
+      return finalizeXmlOutput<T>(output, schema);
     }
     // already parsed by a real backend — pass through
     return output as T;

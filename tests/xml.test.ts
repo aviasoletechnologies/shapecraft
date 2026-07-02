@@ -1,6 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { generate } from "../src/core/generate.js";
-import { parseXml, validateXmlOutput, cleanXml, buildXmlSystemPrompt } from "../src/core/xml.js";
+import {
+  parseXml,
+  validateXmlOutput,
+  cleanXml,
+  buildXmlSystemPrompt,
+  validateXmlTemplate,
+  stripXmlProlog,
+  xmlType,
+} from "../src/core/xml.js";
 import { anthropic } from "../src/backends/anthropic.js";
 import { groq } from "../src/backends/groq.js";
 import { MaxRetriesExceededError, SchemaViolationError } from "../src/types.js";
@@ -52,6 +60,101 @@ describe("buildXmlSystemPrompt", () => {
     expect(prompt).toContain("<person>");
     expect(prompt).toContain("valid XML");
   });
+
+  it("instructs the model to preserve non-placeholder text verbatim", () => {
+    const schema: XmlInput = { xml: { template: "<person><name>{string}</name></person>" } };
+    const prompt = buildXmlSystemPrompt(schema);
+    expect(prompt).toMatch(/preserve/i);
+  });
+
+  it("throws before the model is called if the template has an invalid placeholder", () => {
+    const schema: XmlInput = { xml: { template: '<book edition="{sdasasd}"><title>{string}</title></book>' } };
+    expect(() => buildXmlSystemPrompt(schema)).toThrow(/Invalid placeholder/);
+  });
+});
+
+// ─── xmlType ─────────────────────────────────────────────────────────────────
+
+describe("xmlType", () => {
+  it("exposes the three recognized placeholder tokens", () => {
+    expect(xmlType.string).toBe("{string}");
+    expect(xmlType.number).toBe("{number}");
+    expect(xmlType.boolean).toBe("{boolean}");
+  });
+});
+
+// ─── validateXmlTemplate ──────────────────────────────────────────────────────
+
+describe("validateXmlTemplate", () => {
+  it("accepts a template using only {string}/{number}/{boolean}", () => {
+    expect(() =>
+      validateXmlTemplate(
+        '<book id="{string}" available="{boolean}"><title>{string}</title><year>{number}</year></book>'
+      )
+    ).not.toThrow();
+  });
+
+  it("accepts literal (unbraced) text — only {} content is validated", () => {
+    // this is the exact case from the bug report: a descriptive literal with
+    // no braces at all is not a placeholder and must not be flagged
+    expect(() =>
+      validateXmlTemplate('<library updated="some-randome-date-before-2026"><title>{string}</title></library>')
+    ).not.toThrow();
+  });
+
+  it("rejects a garbled placeholder word wrapped in braces", () => {
+    // edition="{sdasasd}" from the bug report
+    expect(() => validateXmlTemplate('<book edition="{sdasasd}"><title>{string}</title></book>')).toThrow(
+      /\{sdasasd\}/
+    );
+  });
+
+  it("rejects a numeric literal mistakenly wrapped in braces", () => {
+    // totalBooks="{90}" from the bug report — braces make it look like a
+    // placeholder, but "90" isn't a recognized token
+    expect(() => validateXmlTemplate('<library totalBooks="{90}"><title>{string}</title></library>')).toThrow(
+      /\{90\}/
+    );
+  });
+
+  it("rejects another garbled word — name=\"{stringgggg}\"", () => {
+    expect(() =>
+      validateXmlTemplate('<section name="{stringgggg}"><title>{string}</title></section>')
+    ).toThrow(/\{stringgggg\}/);
+  });
+
+  it("reports all invalid tokens at once, not just the first", () => {
+    try {
+      validateXmlTemplate('<book edition="{sdasasd}" pages="{numberz}"><title>{string}</title></book>');
+      expect.unreachable();
+    } catch (err: any) {
+      expect(err.message).toContain("{sdasasd}");
+      expect(err.message).toContain("{numberz}");
+    }
+  });
+
+  it("rejects empty braces", () => {
+    expect(() => validateXmlTemplate('<book id="{}"><title>{string}</title></book>')).toThrow(/\{\}/);
+  });
+});
+
+// ─── stripXmlProlog ───────────────────────────────────────────────────────────
+
+describe("stripXmlProlog", () => {
+  it("removes a leading XML declaration", () => {
+    const withProlog = '<?xml version="1.0" encoding="UTF-8"?>\n<book><title>Test</title></book>';
+    expect(stripXmlProlog(withProlog)).toBe("<book><title>Test</title></book>");
+  });
+
+  it("leaves content untouched when there is no prolog", () => {
+    const noProlog = "<book><title>Test</title></book>";
+    expect(stripXmlProlog(noProlog)).toBe(noProlog);
+  });
+
+  it("handles a UTF-8 BOM before the declaration", () => {
+    const withBom = '﻿<?xml version="1.0"?>\n<book/>';
+    expect(stripXmlProlog(withBom)).toBe("<book/>");
+  });
 });
 
 // ─── validateXmlOutput — required nodes ──────────────────────────────────────
@@ -89,9 +192,242 @@ describe("validateXmlOutput — required nodes", () => {
   });
 });
 
+// ─── reconcileLiterals ────────────────────────────────────────────────────────
+
+describe("reconcileLiterals", () => {
+  it("forces a root-level literal to the template's value, ignoring the model's output", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    // exact bug scenario: unbraced literal the model "helpfully" replaced
+    const template = parseXmlTemplate(
+      '<xs:library updated="some-randome-date-after-2026"><xs:title>{string}</xs:title></xs:library>'
+    );
+    const modelOutput = parseXml('<xs:library updated="2024-05-01"><xs:title>The Road</xs:title></xs:library>');
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled["xs:library"]["@_updated"]).toBe("some-randome-date-after-2026");
+    expect(reconciled["xs:library"]["xs:title"]).toBe("The Road"); // placeholder value untouched
+  });
+
+  it("preserves an unbraced literal even when the model left it alone", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    const template = parseXmlTemplate('<library totalBooks="90"><title>{string}</title></library>');
+    const modelOutput = parseXml('<library totalBooks="90"><title>The Road</title></library>');
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled.library["@_totalBooks"]).toBe("90");
+  });
+
+  it("applies the same literal to every item in a repeated array", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    const template = parseXmlTemplate('<lib><book unit="each"><title>{string}</title></book></lib>');
+    const modelOutput = parseXml(
+      '<lib><book unit="wrong"><title>A</title></book><book unit="also-wrong"><title>B</title></book></lib>'
+    );
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled.lib.book[0]["@_unit"]).toBe("each");
+    expect(reconciled.lib.book[1]["@_unit"]).toBe("each");
+    expect(reconciled.lib.book[0].title).toBe("A"); // placeholders still per-item
+    expect(reconciled.lib.book[1].title).toBe("B");
+  });
+
+  it("forces a literal in even when the model omitted the whole node", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    const template = parseXmlTemplate('<book><meta source="internal-catalog"/><title>{string}</title></book>');
+    const modelOutput = parseXml("<book><title>The Road</title></book>"); // model dropped <meta>
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled.book.meta["@_source"]).toBe("internal-catalog");
+  });
+
+  it("does not inject an empty tag for an omitted placeholder-only subtree", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    const template = parseXmlTemplate("<book><optional><note>{string}</note></optional><title>{string}</title></book>");
+    const modelOutput = parseXml("<book><title>The Road</title></book>"); // model dropped <optional> entirely
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled.book.optional).toBeUndefined();
+  });
+
+  it("keeps extra keys the model added beyond the template", async () => {
+    const { parseXmlTemplate, reconcileLiterals } = await import("../src/core/xml.js");
+    const template = parseXmlTemplate("<book><title>{string}</title></book>");
+    const modelOutput = parseXml("<book><title>The Road</title><isbn>978-1</isbn></book>");
+    const reconciled = reconcileLiterals(template, modelOutput) as any;
+    expect(reconciled.book.isbn).toBe("978-1");
+  });
+});
+
 // ─── generate() with mock model ──────────────────────────────────────────────
 
 describe("generate() with XML schema — mock model", () => {
+  it("enforceLiterals: fixes an unbraced literal the model changed (root attribute)", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        // model "helpfully" replaced the literal date with one from context
+        return '<xs:library updated="2024-05-01"><xs:title>The Road</xs:title></xs:library>' as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      {
+        xml: {
+          template: '<xs:library updated="some-randome-date-after-2026"><xs:title>{string}</xs:title></xs:library>',
+          enforceLiterals: true,
+        },
+      },
+      "Get book"
+    );
+
+    expect(result.data).toContain('updated="some-randome-date-after-2026"');
+    expect(result.data).toContain("<xs:title>The Road</xs:title>");
+  });
+
+  it("enforceLiterals: false (default) leaves the model's altered literal as-is", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return '<xs:library updated="2024-05-01"><xs:title>The Road</xs:title></xs:library>' as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      {
+        xml: {
+          template: '<xs:library updated="some-randome-date-after-2026"><xs:title>{string}</xs:title></xs:library>',
+        },
+      },
+      "Get book"
+    );
+
+    // without enforceLiterals, whatever the model produced passes through unchanged
+    expect(result.data).toContain('updated="2024-05-01"');
+  });
+
+  it("enforceLiterals: parse: true returns the corrected object", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return '<book totalBooks="99"><title>The Road</title></book>' as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      { xml: { template: '<book totalBooks="90"><title>{string}</title></book>', enforceLiterals: true, parse: true } },
+      "Get book"
+    );
+
+    expect((result.data as any)["@_totalBooks"]).toBe("90");
+    expect((result.data as any).title).toBe("The Road");
+  });
+
+  it("enforceLiterals: forces literals across every repeated array item", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return "<lib><book unit=\"wrong\"><title>A</title></book><book unit=\"still-wrong\"><title>B</title></book></lib>" as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      {
+        xml: {
+          template: '<lib><book unit="each"><title>{string}</title></book></lib>',
+          enforceLiterals: true,
+          arrays: ["book"],
+        },
+      },
+      "Get catalog"
+    );
+
+    const occurrences = (result.data as string).match(/unit="each"/g) ?? [];
+    expect(occurrences).toHaveLength(2);
+  });
+
+  it("enforceLiterals with prolog: true adds a standard XML declaration", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return "<book><title>Test</title></book>" as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      { xml: { template: "<book><title>{string}</title></book>", enforceLiterals: true, prolog: true } },
+      "Get book"
+    );
+
+    expect(result.data).toMatch(/^<\?xml/);
+  });
+  it("throws synchronously before any model call for an invalid template", async () => {
+    const { buildStructuredPrompt } = await import("../src/core/schema.js");
+    const generateSpy = vi.fn();
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(prompt: string, schema: any, systemPrompt?: string): Promise<T> {
+        // mimic a real backend: build the prompt before making any "API call"
+        buildStructuredPrompt(prompt, schema, systemPrompt);
+        generateSpy();
+        return "<book><title>X</title></book>" as T;
+      },
+    };
+
+    await expect(
+      generate(
+        model,
+        { xml: { template: '<book edition="{sdasasd}"><title>{string}</title></book>' } },
+        "Get book"
+      )
+    ).rejects.toThrow(/Invalid placeholder/);
+
+    // fails fast — no retries, no wasted model calls
+    expect(generateSpy).not.toHaveBeenCalled();
+  });
+
+  it("default strips a model-added XML prolog", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return '<?xml version="1.0" encoding="UTF-8"?>\n<book><title>Clean Code</title></book>' as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      { xml: { template: "<book><title>{string}</title></book>" } },
+      "Get book"
+    );
+
+    expect(result.data).not.toContain("<?xml");
+    expect(result.data).toBe("<book><title>Clean Code</title></book>");
+  });
+
+  it("prolog: true keeps a model-added XML prolog", async () => {
+    const model: ShapecraftModel = {
+      id: "mock",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        return '<?xml version="1.0" encoding="UTF-8"?>\n<book><title>Clean Code</title></book>' as T;
+      },
+    };
+
+    const result = await generate(
+      model,
+      { xml: { template: "<book><title>{string}</title></book>", prolog: true } },
+      "Get book"
+    );
+
+    expect(result.data).toContain("<?xml");
+  });
+
   it("default returns the validated XML string", async () => {
     const model: ShapecraftModel = {
       id: "mock",
