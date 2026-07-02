@@ -7,10 +7,12 @@ import { parseAndValidate } from "../core/parse.js";
 export interface OllamaBackendOptions {
   model: string;
   host?: string;
+  timeoutMs?: number;
 }
 
 export function ollama(options: OllamaBackendOptions): ShapecraftModel {
   const host = options.host ?? "http://localhost:11434";
+  const timeoutMs = options.timeoutMs ?? 120_000;
 
   return {
     id: `ollama:${options.model}`,
@@ -28,6 +30,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
       }
 
       const response = await fetch(`${host}/api/chat`, {
+        signal: AbortSignal.timeout(timeoutMs),
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

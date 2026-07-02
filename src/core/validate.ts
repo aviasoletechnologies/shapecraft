@@ -1,9 +1,14 @@
 import { z } from "zod";
-import type { SchemaInput } from "../types.js";
+import type { SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
+import { finalizeXmlOutput } from "./xml.js";
 
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
   return schema instanceof z.ZodType;
+}
+
+export function isXmlInput(schema: SchemaInput): schema is XmlInput {
+  return typeof schema === "object" && schema !== null && "xml" in schema;
 }
 
 function nullToUndefined(value: unknown): unknown {
@@ -82,6 +87,15 @@ export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
     if (!schema.validate(output)) {
       throw new SchemaViolationError(JSON.stringify(output), "Custom validator returned false");
     }
+    return output as T;
+  }
+
+  if (isXmlInput(schema)) {
+    if (typeof output === "string") {
+      // raw XML string (from mock models, or the default string path) — validate now
+      return finalizeXmlOutput<T>(output, schema);
+    }
+    // already parsed by a real backend — pass through
     return output as T;
   }
 

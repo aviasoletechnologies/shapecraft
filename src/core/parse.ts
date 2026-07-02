@@ -1,6 +1,7 @@
 import type { SchemaInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { isZodSchema } from "./validate.js";
+import { isZodSchema, isXmlInput } from "./validate.js";
+import { finalizeXmlOutput } from "./xml.js";
 
 export function parseAndValidate<T>(
   raw: string,
@@ -9,6 +10,11 @@ export function parseAndValidate<T>(
 ): T {
   // Pattern schemas return the raw string directly — no JSON parsing
   if ("pattern" in (schema as object)) return raw as T;
+
+  // XML schemas — parse XML then validate structure
+  if (isXmlInput(schema)) {
+    return finalizeXmlOutput<T>(raw, schema);
+  }
 
   try {
     const text = opts.extractJson
