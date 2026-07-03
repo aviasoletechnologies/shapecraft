@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
@@ -52,6 +52,29 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
       const raw = json.message?.content ?? "";
 
       return parseAndValidate<T>(raw, schema);
+    },
+
+    async chat(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+      const response = await fetch(`${host}/api/chat`, {
+        signal: AbortSignal.timeout(timeoutMs),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: options.model,
+          messages: [
+            ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+            ...messages.map((m) => ({ role: m.role, content: m.content })),
+          ],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama error: ${response.status} ${response.statusText}`);
+      }
+
+      const json = (await response.json()) as { message?: { content?: string } };
+      return json.message?.content ?? "";
     },
   };
 }
