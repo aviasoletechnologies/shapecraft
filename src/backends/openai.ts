@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
@@ -13,22 +13,22 @@ export interface OpenAIBackendOptions {
 export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
   const modelId = options.model ?? "gpt-4o-mini";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function client(): Promise<any> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod: any = await import("openai").catch(() => {
+      throw new Error("Install openai: npm install openai");
+    });
+    const OpenAI = mod.default ?? mod;
+    return new OpenAI({ apiKey: options.apiKey ?? process.env.OPENAI_API_KEY, baseURL: options.baseURL });
+  }
+
   return {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod: any = await import("openai").catch(() => {
-        throw new Error("Install openai: npm install openai");
-      });
-
-      const OpenAI = mod.default ?? mod;
-      const client = new OpenAI({
-        apiKey: options.apiKey ?? process.env.OPENAI_API_KEY,
-        baseURL: options.baseURL,
-      });
-
+      const openaiClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
       // Use strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
@@ -44,7 +44,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
             }
           : { type: "json_object" as const };
 
-      const response = await client.chat.completions.create({
+      const response = await openaiClient.chat.completions.create({
         model: modelId,
         messages: [
           { role: "system", content: system },
@@ -56,6 +56,20 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       const raw: string = response.choices[0]?.message?.content ?? "";
 
       return parseAndValidate<T>(raw, schema);
+    },
+
+    async chat(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+      const openaiClient = await client();
+
+      const response = await openaiClient.chat.completions.create({
+        model: modelId,
+        messages: [
+          ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+      });
+
+      return response.choices[0]?.message?.content ?? "";
     },
   };
 }
