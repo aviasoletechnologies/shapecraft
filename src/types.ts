@@ -31,10 +31,20 @@ export type XmlInput = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlInput;
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
   generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T>;
+  /**
+   * Plain, unconstrained conversational turn (no schema/JSON mode imposed).
+   * Required for `turnaround: true` — models without it throw when used that way.
+   */
+  chat?(messages: ChatMessage[], systemPrompt?: string): Promise<string>;
 }
 
 export interface GenerateOptions {
@@ -65,3 +75,29 @@ export class MaxRetriesExceededError extends Error {
     this.name = "MaxRetriesExceededError";
   }
 }
+
+export class MaxTurnsExceededError extends Error {
+  constructor(public readonly turns: number) {
+    super(`Conversation did not complete after ${turns} turns`);
+    this.name = "MaxTurnsExceededError";
+  }
+}
+
+/** Persisted, JSON-serializable conversation state for `turnaround` mode. */
+export interface ConversationMemory {
+  messages: ChatMessage[];
+  status: "collecting" | "complete";
+  turns: number;
+}
+
+export interface TurnaroundOptions {
+  turnaround: true;
+  /** Omit on the first turn; thread the previous result's `memory` back in afterwards. */
+  memory?: ConversationMemory;
+  /** Loop guard — throws MaxTurnsExceededError beyond this many turns. */
+  maxTurns?: number;
+}
+
+export type TurnResult<T> =
+  | { status: "collecting"; message: string; memory: ConversationMemory }
+  | { status: "complete"; data: T; memory: ConversationMemory };
