@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { finalizeXmlOutput } from "./xml.js";
+import { finalizeXmlOutput, isNonEmpty } from "./xml.js";
 
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
   return schema instanceof z.ZodType;
@@ -45,6 +45,10 @@ export function checkJsonSchema(value: unknown, schema: Record<string, unknown>)
 
     for (const key of required) {
       if (!(key in obj)) throw new Error(`Missing required property: "${key}"`);
+      // "required" means present AND non-empty — same as the XML path. Stops a
+      // constrained grammar from satisfying a required field with "" / [] / {}
+      // when the source had no value for it.
+      if (!isNonEmpty(obj[key])) throw new Error(`Required property is empty: "${key}"`);
     }
 
     for (const [key, propSchema] of Object.entries(properties)) {

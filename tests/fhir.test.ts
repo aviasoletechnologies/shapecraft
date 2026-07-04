@@ -109,6 +109,45 @@ describe("fhir presets", () => {
     expect(data).toEqual(rx);
   });
 
+  it("rejects a required field that is present but empty (constrained-grammar gap)", async () => {
+    // Repro: a constrained grammar forces birthDate to appear; the model has no
+    // value for it and emits "". `required` must treat that as missing, not pass.
+    const model = fixedModel({
+      resourceType: "Patient",
+      name: [{ text: "J.S." }],
+      gender: "unknown",
+      birthDate: "",
+    });
+    await expect(
+      generate(model, fhir.Patient, "extract patient", { maxRetries: 1 })
+    ).rejects.toBeInstanceOf(Error);
+  });
+
+  it("rejects an empty array for a required field", async () => {
+    const model = fixedModel({
+      resourceType: "Patient",
+      name: [],
+      gender: "male",
+      birthDate: "1990-01-01",
+    });
+    await expect(
+      generate(model, fhir.Patient, "extract patient", { maxRetries: 1 })
+    ).rejects.toBeInstanceOf(Error);
+  });
+
+  it("keeps 0 and false as valid required values", async () => {
+    // isNonEmpty must not reject falsy-but-real values.
+    const schema = {
+      jsonSchema: {
+        type: "object",
+        required: ["count", "active"],
+        properties: { count: { type: "number" }, active: { type: "boolean" } },
+      },
+    };
+    const { data } = await generate(fixedModel({ count: 0, active: false }), schema, "x");
+    expect(data).toEqual({ count: 0, active: false });
+  });
+
   it("emits per-field partial events streaming a Patient", async () => {
     const model = streamingModel(JSON.stringify(validPatient));
     const stream = generateStream(model, fhir.Patient, "extract patient");

@@ -181,7 +181,12 @@ export function buildXmlFromTree(tree: Record<string, unknown>): string {
 
 // ─── Required-node validation ─────────────────────────────────────────────────
 
-function isNonEmpty(value: unknown): boolean {
+/**
+ * True if a value counts as "present and non-empty" for a required field.
+ * Shared by the XML required-node check and the JSON Schema required check so
+ * both schema paths agree on what "required" means. `0` / `false` stay valid.
+ */
+export function isNonEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0 && value.some(isNonEmpty);
