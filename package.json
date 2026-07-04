@@ -32,6 +32,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./fhir": {
+      "types": "./dist/fhir/index.d.ts",
+      "import": "./dist/fhir/index.js",
+      "require": "./dist/fhir/index.cjs"
     }
   },
   "files": [
