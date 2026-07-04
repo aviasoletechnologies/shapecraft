@@ -22,7 +22,7 @@ function nullToUndefined(value: unknown): unknown {
   return value;
 }
 
-function checkJsonSchema(value: unknown, schema: Record<string, unknown>): void {
+export function checkJsonSchema(value: unknown, schema: Record<string, unknown>): void {
   const type = schema.type as string | undefined;
 
   if (type) {
