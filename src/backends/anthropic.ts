@@ -1,4 +1,4 @@
-import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, ModelCallOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
 
@@ -24,16 +24,19 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
     id: `anthropic:${modelId}`,
     guaranteeLevel: "best-effort",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const anthropicClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const response = await anthropicClient.messages.create({
-        model: modelId,
-        max_tokens: 4096,
-        system,
-        messages: [{ role: "user", content: user }],
-      });
+      const response = await anthropicClient.messages.create(
+        {
+          model: modelId,
+          max_tokens: 4096,
+          system,
+          messages: [{ role: "user", content: user }],
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       const raw: string =
         response.content[0]?.type === "text" ? response.content[0].text : "";
@@ -54,16 +57,24 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
       return response.content[0]?.type === "text" ? response.content[0].text : "";
     },
 
-    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+    async *generateStream<T>(
+      prompt: string,
+      schema: SchemaInput<T>,
+      systemPrompt?: string,
+      callOptions?: ModelCallOptions
+    ): AsyncIterable<string> {
       const anthropicClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const stream = anthropicClient.messages.stream({
-        model: modelId,
-        max_tokens: 4096,
-        system,
-        messages: [{ role: "user", content: user }],
-      });
+      const stream = anthropicClient.messages.stream(
+        {
+          model: modelId,
+          max_tokens: 4096,
+          system,
+          messages: [{ role: "user", content: user }],
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const event of stream as AsyncIterable<any>) {

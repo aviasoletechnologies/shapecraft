@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput } from "../types.js";
+import type { JsonSchemaValidator, SchemaInput } from "../types.js";
 import { checkJsonSchema, isXmlInput } from "./validate.js";
 
 /**
@@ -151,7 +151,12 @@ export function extractCompletedTopLevelFields(buffer: string): Record<string, s
  * passed (or there's no sub-schema for it / for this schema type at all —
  * XML, pattern, and custom-validator schemas never decompose).
  */
-export function validateFieldIfPossible<T>(schema: SchemaInput<T>, key: string, value: unknown): string | null {
+export function validateFieldIfPossible<T>(
+  schema: SchemaInput<T>,
+  key: string,
+  value: unknown,
+  opts: { jsonSchemaValidator?: JsonSchemaValidator | undefined } = {}
+): string | null {
   if (isXmlInput(schema)) return null;
 
   if (schema instanceof z.ZodType) {
@@ -170,7 +175,8 @@ export function validateFieldIfPossible<T>(schema: SchemaInput<T>, key: string, 
     const propSchema = properties?.[key];
     if (!propSchema) return null;
     try {
-      checkJsonSchema(value, propSchema);
+      const validate = opts.jsonSchemaValidator ?? checkJsonSchema;
+      validate(value, propSchema);
       return null;
     } catch (err) {
       return err instanceof Error ? err.message : String(err);

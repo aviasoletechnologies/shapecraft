@@ -1,6 +1,7 @@
 import type {
   GenerateOptions,
   GenerateResult,
+  ResultMetadata,
   SchemaInput,
   ShapecraftModel,
   TurnaroundOptions,
@@ -9,6 +10,12 @@ import type {
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 import { validateOutput } from "./validate.js";
 import { runTurnaround } from "./turnaround.js";
+import { createTimeoutGuard } from "./timeout.js";
+
+export function parseProviderModel(id: string): { provider: string; model: string } {
+  const idx = id.indexOf(":");
+  return idx === -1 ? { provider: id, model: id } : { provider: id.slice(0, idx), model: id.slice(idx + 1) };
+}
 
 export function generate<T>(
   model: ShapecraftModel,
@@ -35,20 +42,34 @@ export async function generate<T>(
   }
 
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt } = options;
+  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator } = options;
+  const { provider, model: modelName } = parseProviderModel(model.id);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Fail fast on an already-aborted signal — skip calling the backend
+    // entirely rather than invoking it just to have Promise.race discard it.
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+
+    const t0 = Date.now();
+    const { guard, signal: callSignal, cleanup } = createTimeoutGuard(timeoutMs, signal);
     try {
-      const raw = await model.generate<T>(prompt, schema, systemPrompt);
-      const data = validateOutput<T>(raw, schema);
+      const raw = await Promise.race([
+        model.generate<T>(prompt, schema, systemPrompt, callSignal ? { signal: callSignal } : undefined),
+        guard,
+      ]);
+      const data = validateOutput<T>(raw, schema, { jsonSchemaValidator });
+      const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
       return {
         data,
         guaranteeLevel: model.guaranteeLevel,
         attempts: attempt,
+        metadata,
       };
     } catch (err) {
       if (!(err instanceof SchemaViolationError)) throw err;
       if (attempt === maxRetries) break;
+    } finally {
+      cleanup();
     }
   }
 

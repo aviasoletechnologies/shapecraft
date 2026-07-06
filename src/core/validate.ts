@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchemaInput, XmlInput } from "../types.js";
+import type { JsonSchemaValidator, SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { finalizeXmlOutput } from "./xml.js";
 
@@ -59,7 +59,11 @@ export function checkJsonSchema(value: unknown, schema: Record<string, unknown>)
   }
 }
 
-export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
+export function validateOutput<T>(
+  output: unknown,
+  schema: SchemaInput<T>,
+  opts: { jsonSchemaValidator?: JsonSchemaValidator | undefined } = {}
+): T {
   if (isZodSchema(schema)) {
     const result = schema.safeParse(nullToUndefined(output));
     if (!result.success) throw new SchemaViolationError(JSON.stringify(output), result.error);
@@ -68,7 +72,8 @@ export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
 
   if ("jsonSchema" in schema) {
     try {
-      checkJsonSchema(output, schema.jsonSchema);
+      const validate = opts.jsonSchemaValidator ?? checkJsonSchema;
+      validate(output, schema.jsonSchema);
     } catch (err) {
       throw new SchemaViolationError(JSON.stringify(output), err);
     }

@@ -1,8 +1,9 @@
 import { z } from "zod";
-import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, ModelCallOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
+import { combineSignals } from "../core/timeout.js";
 
 export interface OllamaBackendOptions {
   model: string;
@@ -31,12 +32,12 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
       const format = formatFor(schema);
 
       const response = await fetch(`${host}/api/chat`, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: combineSignals(AbortSignal.timeout(timeoutMs), callOptions?.signal) ?? null,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -83,12 +84,17 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
       return json.message?.content ?? "";
     },
 
-    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+    async *generateStream<T>(
+      prompt: string,
+      schema: SchemaInput<T>,
+      systemPrompt?: string,
+      callOptions?: ModelCallOptions
+    ): AsyncIterable<string> {
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
       const format = formatFor(schema);
 
       const response = await fetch(`${host}/api/chat`, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: combineSignals(AbortSignal.timeout(timeoutMs), callOptions?.signal) ?? null,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
