@@ -9,6 +9,23 @@
   `structuredOutput` true, `toolCalling` false - no backend supports tool calling
   yet). Optional field, so any pre-existing custom `ShapecraftModel` implementation
   without it still satisfies the interface unchanged.
+- **`generateBatch()` / `client.generateBatch()`** - runs multiple independent
+  `{ model, schema, prompt, options? }` items in parallel, capped at
+  `concurrency` in flight at once (uncapped if omitted). Each item settles
+  independently (`Promise.allSettled`-style, not `Promise.all`-style), so one
+  failing item never loses the results of the rest of the batch. Result order
+  always matches input order regardless of completion order.
+  `client.generateBatch()` routes each item through the client's own
+  `generate()`, so middleware and client-level retry/timeout/validator
+  defaults apply per item, same as a single call.
+
+### Fixed
+- **XML `required` validation missed empty nodes that also carry an attribute**
+  - `<title lang="en"></title>` parses to `{ "@_lang": "en" }`, which has a key
+  and was wrongly treated as non-empty even though its actual text content is
+  blank. `isNonEmpty()` now excludes attribute keys (`@_`-prefixed) from the
+  "has content" check, so a required node with only an attribute and no real
+  text correctly fails validation and retries, instead of silently passing.
 
 ## [2.0.2] - 2026-07-06
 
