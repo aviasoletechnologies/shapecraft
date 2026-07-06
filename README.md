@@ -242,6 +242,26 @@ const local  = ollama({ model: "llama3.2" });
 const claude = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
 ```
 
+### Model Capabilities
+
+Every built-in backend also exposes `capabilities` — an explicit, inspectable alternative to duck-typing `typeof model.generateStream === "function"` for routing logic:
+
+```typescript
+console.log(claude.capabilities);
+// { streaming: true, chat: true, structuredOutput: true, toolCalling: false }
+```
+
+```typescript
+interface ModelCapabilities {
+  streaming: boolean;       // has generateStream()
+  chat: boolean;            // has chat() - required for turnaround: true
+  structuredOutput: boolean; // has generate() - always true
+  toolCalling: boolean;     // not yet supported by any backend
+}
+```
+
+`capabilities` is optional on `ShapecraftModel` — a custom model implementation that predates this field (or simply doesn't set it) still satisfies the interface unchanged, and `model.capabilities` is `undefined` for it. `chat?`/`generateStream?` remain the actual methods the core calls; `capabilities` is just a declared summary of the same information, not a replacement mechanism.
+
 ## Streaming
 
 `generateStream()` streams tokens live for UX, but validates the assembled response exactly once, through the same pipeline as `generate()` — streaming is purely a transport layer, not a different guarantee. Falls back to one-shot `generate()` for a model without streaming support.
