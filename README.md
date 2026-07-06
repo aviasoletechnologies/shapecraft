@@ -280,6 +280,124 @@ for await (const event of stream2.events) {
 
 **Streaming smoothness tracks guarantee level.** `native`/`constrained` backends (OpenAI, Groq, Ollama) rarely fail validation — the server already constrains tokens as they're generated — so streams almost never restart. `best-effort` (Anthropic) has no such constraint, so a stream may visibly restart more often.
 
+## createClient() & Middleware
+
+For cross-cutting concerns (logging, caching, telemetry) that would otherwise mean editing `generate()` itself, wrap it once with `createClient()` — a Koa-style onion middleware chain plus client-level defaults.
+
+```typescript
+import { createClient, loggingMiddleware } from "@aviasole/shapecraft";
+
+const client = createClient({
+  middleware: [loggingMiddleware()],
+  retry: { max: 3 },
+  timeoutMs: 10_000,
+});
+
+const result = await client.generate(model, schema, prompt);
+```
+
+A middleware sees the request before `next()` runs and the result/error after — outer middlewares wrap inner ones, like nested boxes, not a flat sequence:
+
+```typescript
+import type { Middleware } from "@aviasole/shapecraft";
+
+const timing: Middleware = async (ctx, next) => {
+  const t0 = Date.now();
+  const result = await next();          // everything below this middleware runs first
+  console.log(`${ctx.model.id} took ${Date.now() - t0}ms`);
+  return result;
+};
+```
+
+A middleware that never calls `next()` short-circuits the real call entirely — the standard shape for a cache:
+
+```typescript
+import type { Middleware, GenerateResult } from "@aviasole/shapecraft";
+
+const cache = new Map<string, GenerateResult<unknown>>();
+
+const cachingMiddleware: Middleware = async (ctx, next) => {
+  const key = `${ctx.model.id}:${ctx.prompt}`;
+  const hit = cache.get(key);
+  if (hit) return hit;                  // model never called
+  const result = await next();
+  cache.set(key, result);
+  return result;
+};
+```
+
+`createClient()` is purely additive — existing direct calls to `generate()`/`generateStream()` are unaffected. Middleware wraps `generate()` only; `generateStream()` picks up the client's `retry`/`timeoutMs`/`jsonSchemaValidator` defaults but isn't intercepted by middleware (its async-iterable shape doesn't fit the simple before/after `next()` model).
+
+## Result Metadata
+
+Every `GenerateResult` includes `metadata`:
+
+```typescript
+const result = await generate(model, schema, prompt);
+
+console.log(result.metadata);
+// { provider: "groq", model: "llama-3.3-70b-versatile", latencyMs: 284 }
+```
+
+```typescript
+interface ResultMetadata {
+  provider: string;
+  model: string;
+  latencyMs: number;
+  tokens?: { input: number; output: number };
+  finishReason?: string;
+  requestId?: string;
+  cost?: number;
+}
+```
+
+`provider`, `model`, and `latencyMs` are always populated by the core (parsed from `model.id`, measured around the call). `tokens`, `finishReason`, `requestId`, and `cost` are reserved for a future backend hook that surfaces the underlying API response's usage data — they're `undefined` today, on every backend.
+
+## Timeouts & Cancellation
+
+Bound or cancel a single attempt with `timeoutMs` and/or an `AbortSignal`:
+
+```typescript
+import { TimeoutError } from "@aviasole/shapecraft";
+
+try {
+  const result = await generate(model, schema, prompt, { timeoutMs: 5_000 });
+} catch (err) {
+  if (err instanceof TimeoutError) {
+    console.error(`Timed out after ${err.timeoutMs}ms`);
+  }
+}
+```
+
+```typescript
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 5_000);
+
+const result = await generate(model, schema, prompt, { signal: controller.signal });
+```
+
+Enforced at the core level for every backend — the retry loop always stops waiting once the timeout/signal fires, even against a backend that ignores cancellation entirely. All four built-in backends (`openai`, `groq`, `anthropic`, `ollama`) additionally forward the signal to the underlying SDK/fetch call for real request cancellation, not just abandonment. `TimeoutError` is never retried (it isn't a `SchemaViolationError`).
+
+## Pluggable JSON Schema Validation
+
+The built-in `jsonSchema` check (`checkJsonSchema`) is intentionally shallow — it validates types and `required` presence, not `minLength`/`maximum`/`pattern`/`$ref`/etc. Rather than expanding it, it's pluggable: supply your own validator (or wire up AJV) via `jsonSchemaValidator`.
+
+```typescript
+const strictValidator = (value: unknown, schema: Record<string, unknown>) => {
+  // throw to reject; return normally to accept
+  const v = value as { age?: number };
+  if (typeof v.age !== "number" || v.age < 0 || v.age > 130) {
+    throw new Error("age must be a plausible human age");
+  }
+};
+
+const result = await generate(model, { jsonSchema: PersonJsonSchema }, prompt, {
+  jsonSchemaValidator: strictValidator,
+});
+```
+
+Applies to both `generate()`'s final check and `generateStream()`'s per-field incremental (`partial`) validation, so a custom validator behaves consistently whether or not you're streaming. Omit it and you get today's `checkJsonSchema` behavior, unchanged.
+
 ## What shapecraft guarantees — and what it doesn't
 
 Every mechanism above (`native`, `constrained`, `best-effort` + retry) targets one thing: **the output is structurally valid** — it parses, the types match, required fields are present and non-empty. That's a real, load-bearing guarantee: it's the difference between code that can trust `result.data.age` is a `number` versus code that has to defensively re-check everything the model says.
@@ -302,6 +420,15 @@ const result = await generate(model, schema, prompt, {
   systemPrompt: "You are a data extraction assistant.",
 });
 ```
+
+| Option | Purpose |
+|---|---|
+| `maxRetries` | attempts before throwing `MaxRetriesExceededError` (default: 2) |
+| `temperature` | forwarded to the backend, where supported |
+| `systemPrompt` | prepended instruction, combined with the schema-derived prompt |
+| `timeoutMs` | bound a single attempt's wall-clock time — see [Timeouts & Cancellation](#timeouts--cancellation) |
+| `signal` | an `AbortSignal` to cancel an in-flight attempt — see [Timeouts & Cancellation](#timeouts--cancellation) |
+| `jsonSchemaValidator` | override the built-in `jsonSchema` structural check — see [Pluggable JSON Schema Validation](#pluggable-json-schema-validation) |
 
 ## Error Handling
 
