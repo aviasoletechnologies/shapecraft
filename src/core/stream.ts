@@ -3,6 +3,7 @@ import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 import { generate } from "./generate.js";
 import { parseAndValidate } from "./parse.js";
 import { extractCompletedTopLevelFields, validateFieldIfPossible } from "./incremental.js";
+import { isGbnfInput } from "./validate.js";
 
 /**
  * Single-consumer async channel. textStream and events are two independent
@@ -112,8 +113,10 @@ export function generateStream<T>(
           // JSON closes, check it against its own sub-schema immediately,
           // instead of waiting for the whole object. Only applies to schemas
           // that decompose into named fields (Zod object / jsonSchema with
-          // properties) — everything else is a no-op here.
-          const completedFields = extractCompletedTopLevelFields(buffer);
+          // properties) — everything else is a no-op here. GBNF is a string
+          // language: a JSON-shaped grammar could otherwise trip the field
+          // scanner into emitting misleading `partial` events, so skip it.
+          const completedFields = isGbnfInput(schema) ? {} : extractCompletedTopLevelFields(buffer);
           for (const [key, raw] of Object.entries(completedFields)) {
             if (validatedKeys.has(key)) continue;
             validatedKeys.add(key);

@@ -1,7 +1,8 @@
 import type { SchemaInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { isZodSchema, isXmlInput } from "./validate.js";
+import { isZodSchema, isXmlInput, isGbnfInput } from "./validate.js";
 import { finalizeXmlOutput } from "./xml.js";
+import { matchesGbnf } from "./gbnf.js";
 
 export function parseAndValidate<T>(
   raw: string,
@@ -10,6 +11,15 @@ export function parseAndValidate<T>(
 ): T {
   // Pattern schemas return the raw string directly — no JSON parsing
   if ("pattern" in (schema as object)) return raw as T;
+
+  // GBNF schemas — raw string, validated against the grammar (so streaming
+  // validates it too, not just the non-streaming validateOutput path)
+  if (isGbnfInput(schema)) {
+    if (!matchesGbnf(schema.gbnf, raw)) {
+      throw new SchemaViolationError(raw, "Output does not conform to the GBNF grammar");
+    }
+    return raw as T;
+  }
 
   // XML schemas — parse XML then validate structure
   if (isXmlInput(schema)) {
