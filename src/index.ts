@@ -1,5 +1,6 @@
 export { generate } from "./core/generate.js";
 export { generateStream } from "./core/stream.js";
+export { generateBatch } from "./core/batch.js";
 export { toJsonSchema, buildStructuredPrompt } from "./core/schema.js";
 export { xmlType, validateXmlTemplate } from "./core/xml.js";
 export { createConversationMemory, COMPLETION_SENTINEL } from "./core/turnaround.js";
@@ -26,6 +27,9 @@ export type {
   TurnResult,
   StreamEvent,
   StreamHandle,
+  BatchItem,
+  BatchResult,
+  GenerateBatchOptions,
 } from "./types.js";
 
 export type { CreateClientOptions, ShapecraftClient } from "./core/client.js";

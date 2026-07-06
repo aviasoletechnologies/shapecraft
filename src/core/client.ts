@@ -1,6 +1,17 @@
-import type { GenerateOptions, GenerateResult, JsonSchemaValidator, SchemaInput, ShapecraftModel, StreamHandle } from "../types.js";
+import type {
+  BatchItem,
+  BatchResult,
+  GenerateBatchOptions,
+  GenerateOptions,
+  GenerateResult,
+  JsonSchemaValidator,
+  SchemaInput,
+  ShapecraftModel,
+  StreamHandle,
+} from "../types.js";
 import { generate } from "./generate.js";
 import { generateStream } from "./stream.js";
+import { runBatch } from "./batch.js";
 import { composeMiddleware } from "./middleware.js";
 import type { Middleware, MiddlewareContext } from "./middleware.js";
 
@@ -18,6 +29,13 @@ export interface CreateClientOptions {
 export interface ShapecraftClient {
   generate<T>(model: ShapecraftModel, schema: SchemaInput<T>, prompt: string, options?: GenerateOptions): Promise<GenerateResult<T>>;
   generateStream<T>(model: ShapecraftModel, schema: SchemaInput<T>, prompt: string, options?: GenerateOptions): StreamHandle<T>;
+  /**
+   * Runs each item through this client's own `generate()` (so middleware and
+   * client-level retry/timeout/validator defaults apply per item, same as a
+   * single call), capped at `options.concurrency` in flight at once. Never
+   * throws on a single item's failure — see `BatchResult`.
+   */
+  generateBatch<T>(items: BatchItem<T>[], options?: GenerateBatchOptions): Promise<BatchResult<T>[]>;
 }
 
 /**
@@ -48,16 +66,20 @@ export function createClient(clientOptions: CreateClientOptions = {}): Shapecraf
     };
   }
 
+  // A plain function (not a `this`-bound method) so generateBatch() below can
+  // call it directly without depending on how the returned object is used.
+  function runGenerate<T>(
+    model: ShapecraftModel,
+    schema: SchemaInput<T>,
+    prompt: string,
+    options: GenerateOptions = {}
+  ): Promise<GenerateResult<T>> {
+    const ctx: MiddlewareContext<T> = { model, schema, prompt, options: mergeOptions(options) };
+    return chain(ctx, () => generate<T>(ctx.model, ctx.schema, ctx.prompt, ctx.options));
+  }
+
   return {
-    generate<T>(
-      model: ShapecraftModel,
-      schema: SchemaInput<T>,
-      prompt: string,
-      options: GenerateOptions = {}
-    ): Promise<GenerateResult<T>> {
-      const ctx: MiddlewareContext<T> = { model, schema, prompt, options: mergeOptions(options) };
-      return chain(ctx, () => generate<T>(ctx.model, ctx.schema, ctx.prompt, ctx.options));
-    },
+    generate: runGenerate,
 
     generateStream<T>(
       model: ShapecraftModel,
@@ -66,6 +88,10 @@ export function createClient(clientOptions: CreateClientOptions = {}): Shapecraf
       options: GenerateOptions = {}
     ): StreamHandle<T> {
       return generateStream<T>(model, schema, prompt, mergeOptions(options));
+    },
+
+    generateBatch<T>(items: BatchItem<T>[], options?: GenerateBatchOptions): Promise<BatchResult<T>[]> {
+      return runBatch(items, (item) => runGenerate<T>(item.model, item.schema, item.prompt, item.options), options);
     },
   };
 }

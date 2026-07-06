@@ -141,6 +141,26 @@ export interface GenerateResult<T> {
   metadata: ResultMetadata;
 }
 
+/** One independent unit of work for `generateBatch()`/`client.generateBatch()`. */
+export interface BatchItem<T = unknown> {
+  model: ShapecraftModel;
+  schema: SchemaInput<T>;
+  prompt: string;
+  options?: GenerateOptions;
+}
+
+/**
+ * Settled outcome for one `BatchItem` — mirrors `Promise.allSettled`'s shape
+ * rather than throwing, so one failing item never loses the results of the
+ * rest of the batch.
+ */
+export type BatchResult<T> = { status: "fulfilled"; value: GenerateResult<T> } | { status: "rejected"; reason: unknown };
+
+export interface GenerateBatchOptions {
+  /** Max number of items in flight at once. Omit (or <= 0) to run every item concurrently, uncapped. */
+  concurrency?: number;
+}
+
 export class SchemaViolationError extends Error {
   constructor(
     public readonly raw: string,
