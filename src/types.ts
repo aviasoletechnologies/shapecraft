@@ -5,6 +5,17 @@ export type GuaranteeLevel = "constrained" | "native" | "best-effort";
 export type JsonSchemaInput = { jsonSchema: Record<string, unknown> };
 export type PatternInput = { pattern: RegExp };
 export type ValidatorInput = { validate: (output: unknown) => boolean; hint?: Record<string, unknown> };
+export type GbnfInput = {
+  /**
+   * A GBNF (GGML BNF) grammar string. On a llama.cpp-family backend
+   * (`llamaCpp()`) it is applied at the token level, so the output is valid by
+   * construction (`constrained`). On every other backend it is injected into the
+   * prompt (best-effort) and the returned string is validated against the grammar
+   * by a bundled pragmatic GBNF interpreter. Output is always the raw matched
+   * string — never JSON-parsed.
+   */
+  gbnf: string;
+};
 
 export type XmlInput = {
   xml: {
@@ -29,7 +40,7 @@ export type XmlInput = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlInput;
+export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlInput | GbnfInput;
 
 export interface ChatMessage {
   role: "user" | "assistant";
