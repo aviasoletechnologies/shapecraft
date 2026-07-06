@@ -24,6 +24,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
   return {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const groqClient = await client();

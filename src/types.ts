@@ -49,9 +49,27 @@ export interface ModelCallOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Explicit, inspectable feature flags for a model — an alternative to
+ * duck-typing `typeof model.chat === "function"` / `typeof model.generateStream
+ * === "function"` for routing logic. Optional so any pre-existing custom
+ * `ShapecraftModel` implementation (which predates this field) still
+ * satisfies the interface unchanged; the 4 built-in backends always populate
+ * it. `chat?`/`generateStream?` themselves are untouched and still the
+ * source of truth the core actually calls — `capabilities` is a declared
+ * summary of the same information, not a replacement mechanism.
+ */
+export interface ModelCapabilities {
+  streaming: boolean;
+  chat: boolean;
+  structuredOutput: boolean;
+  toolCalling: boolean;
+}
+
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
+  capabilities?: ModelCapabilities;
   generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T>;
   /**
    * Plain, unconstrained conversational turn (no schema/JSON mode imposed).
