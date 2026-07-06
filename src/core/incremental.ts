@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { JsonSchemaValidator, SchemaInput } from "../types.js";
-import { checkJsonSchema, isXmlInput } from "./validate.js";
+import { checkJsonSchema, isXmlInput, isZodSchema } from "./validate.js";
 
 /**
  * Scans a growing JSON buffer for top-level object fields whose value has
@@ -159,7 +159,7 @@ export function validateFieldIfPossible<T>(
 ): string | null {
   if (isXmlInput(schema)) return null;
 
-  if (schema instanceof z.ZodType) {
+  if (isZodSchema(schema)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const shape = (schema as any).shape as Record<string, z.ZodTypeAny> | undefined;
     const fieldSchema = shape?.[key];

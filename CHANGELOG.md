@@ -26,6 +26,16 @@
   `generateStream()` carrying `{ signal }`. Backends that don't declare it still
   satisfy the interface and behave exactly as before.
 
+### Fixed
+- **`isZodSchema()` dual-package-hazard** — replaced `schema instanceof z.ZodType`
+  with a duck-typed check (`_def` + `parse`/`safeParse`). A consumer whose zod
+  install resolves to a different module instance or major version than the one
+  in shapecraft's own dependency tree (e.g. a `file:`-linked local package, or a
+  nested zod copy pulled in transitively by another dependency) would silently
+  hit "Unknown schema type" for every Zod schema, since `instanceof` compared
+  against the wrong class. Affected `core/validate.ts`, `core/schema.ts`,
+  `core/incremental.ts`, `core/turnaround.ts`.
+
 ### Notes
 - `createClient()`'s middleware wraps `generate()` only; `generateStream()` gets
   the client's retry/timeout/validator defaults but not middleware interception

@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import { MaxTurnsExceededError } from "../types.js";
 import { generate } from "./generate.js";
-import { isXmlInput } from "./validate.js";
+import { isXmlInput, isZodSchema } from "./validate.js";
 
 /** Emitted alone by the model to signal the conversation has everything it needs. */
 export const COMPLETION_SENTINEL = "<<<COMPLETE>>>";
@@ -26,7 +26,7 @@ export function createConversationMemory(): ConversationMemory {
  * fields (pattern, custom validator without a hint) — the checklist is skipped.
  */
 function requiredFieldNames<T>(schema: SchemaInput<T>): string[] | undefined {
-  if (schema instanceof z.ZodType) {
+  if (isZodSchema(schema)) {
     // Read the shape directly rather than going through toJsonSchema — reliable
     // across zod versions and doesn't depend on zod-to-json-schema's internals.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

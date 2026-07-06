@@ -3,8 +3,20 @@ import type { JsonSchemaValidator, SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { finalizeXmlOutput } from "./xml.js";
 
+// Duck-typed rather than `instanceof z.ZodType`: a `file:`-linked or
+// nested-install consumer can end up with a different zod module instance
+// (or major version) than the one this schema was built with, which makes
+// `instanceof` false even for a genuine Zod schema. `_def`/`parse`/`safeParse`
+// are present on every ZodType across zod v3 and v4, and none of the other
+// SchemaInput shapes (jsonSchema/pattern/validate/xml) have all three.
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
-  return schema instanceof z.ZodType;
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    "_def" in schema &&
+    typeof (schema as { parse?: unknown }).parse === "function" &&
+    typeof (schema as { safeParse?: unknown }).safeParse === "function"
+  );
 }
 
 export function isXmlInput(schema: SchemaInput): schema is XmlInput {
