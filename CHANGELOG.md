@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.3] - 2026-07-06
+
+### Added
+- **`ShapecraftModel.capabilities`** - `{ streaming, chat, structuredOutput, toolCalling }`,
+  an explicit alternative to duck-typing `typeof model.generateStream === "function"`
+  for routing logic. Populated on all 4 built-in backends (`streaming`/`chat`/
+  `structuredOutput` true, `toolCalling` false - no backend supports tool calling
+  yet). Optional field, so any pre-existing custom `ShapecraftModel` implementation
+  without it still satisfies the interface unchanged.
+
 ## [2.0.2] - 2026-07-06
 
 ### Added
