@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
-import { isZodSchema } from "../core/validate.js";
+import { isZodSchema, isGbnfInput } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
 
 export interface OpenAIBackendOptions {
@@ -12,6 +12,9 @@ export interface OpenAIBackendOptions {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function responseFormatFor(schema: SchemaInput): any {
+  // GBNF output is a free-form string, not JSON — do NOT force json_object,
+  // it would corrupt the grammar-constrained output. Prompt-only (best-effort).
+  if (isGbnfInput(schema)) return undefined;
   // Strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
   return isZodSchema(schema)
     ? {

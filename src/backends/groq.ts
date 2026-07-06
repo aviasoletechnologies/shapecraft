@@ -1,7 +1,13 @@
 import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
-import { isXmlInput } from "../core/validate.js";
+import { isXmlInput, isGbnfInput } from "../core/validate.js";
+
+function wantsJsonMode(schema: SchemaInput): boolean {
+  // XML and GBNF output free-form strings, not JSON — Groq rejects json_object
+  // mode when the prompt doesn't literally contain the word "json".
+  return !isXmlInput(schema) && !isGbnfInput(schema);
+}
 
 export interface GroqBackendOptions {
   model?: string;
@@ -35,8 +41,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        // XML schemas must not use json_object mode — Groq rejects it when prompt lacks "json"
-        ...(!isXmlInput(schema) ? { response_format: { type: "json_object" } } : {}),
+        ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";
@@ -68,7 +73,7 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        ...(!isXmlInput(schema) ? { response_format: { type: "json_object" } } : {}),
+        ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
         stream: true,
       });
 
