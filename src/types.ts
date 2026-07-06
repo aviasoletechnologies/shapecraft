@@ -45,6 +45,13 @@ export interface ShapecraftModel {
    * Required for `turnaround: true` — models without it throw when used that way.
    */
   chat?(messages: ChatMessage[], systemPrompt?: string): Promise<string>;
+  /**
+   * Yields RAW text deltas only — no parsing/validation. `generateStream()`
+   * (the core entry point) accumulates these and validates the assembled
+   * buffer through the same pipeline as non-streaming `generate()`.
+   * Absence ⇒ the core falls back to one-shot `generate()`.
+   */
+  generateStream?<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string>;
 }
 
 export interface GenerateOptions {
@@ -101,3 +108,27 @@ export interface TurnaroundOptions {
 export type TurnResult<T> =
   | { status: "collecting"; message: string; memory: ConversationMemory }
   | { status: "complete"; data: T; memory: ConversationMemory };
+
+export type StreamEvent<T> =
+  | { type: "attempt-start"; attempt: number }
+  | { type: "delta"; text: string; attempt: number }
+  /**
+   * A top-level field just closed and passed its own sub-schema check —
+   * `value` accumulates validated fields so far. Only emitted for schemas
+   * shaped as a JSON object at the root (Zod object / jsonSchema with
+   * `properties`); other schema types never emit this. Nested fields inside
+   * a top-level field are not individually validated — the whole field's
+   * value is checked once its own JSON closes.
+   */
+  | { type: "partial"; value: Partial<T>; attempt: number }
+  | { type: "attempt-failed"; attempt: number; error: SchemaViolationError }
+  | { type: "done"; result: GenerateResult<T> };
+
+export interface StreamHandle<T> {
+  /** Raw text deltas as they arrive (concatenation of all attempts — see README). */
+  textStream: AsyncIterable<string>;
+  /** Structured lifecycle events: deltas, attempt boundaries, retries, done. */
+  events: AsyncIterable<StreamEvent<T>>;
+  /** Resolves with the final validated result, or rejects with MaxRetriesExceededError. */
+  result: Promise<GenerateResult<T>>;
+}

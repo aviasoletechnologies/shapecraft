@@ -53,5 +53,24 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
 
       return response.content[0]?.type === "text" ? response.content[0].text : "";
     },
+
+    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+      const anthropicClient = await client();
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+
+      const stream = anthropicClient.messages.stream({
+        model: modelId,
+        max_tokens: 4096,
+        system,
+        messages: [{ role: "user", content: user }],
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const event of stream as AsyncIterable<any>) {
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          yield event.delta.text as string;
+        }
+      }
+    },
   };
 }

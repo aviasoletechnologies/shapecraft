@@ -10,6 +10,23 @@ export interface OpenAIBackendOptions {
   baseURL?: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function responseFormatFor(schema: SchemaInput): any {
+  // Strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
+  return isZodSchema(schema)
+    ? {
+        type: "json_schema" as const,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        json_schema: { name: "output", strict: true, schema: toJsonSchema(schema as z.ZodType<any>) },
+      }
+    : "jsonSchema" in (schema as object)
+      ? {
+          type: "json_schema" as const,
+          json_schema: { name: "output", strict: false, schema: (schema as { jsonSchema: Record<string, unknown> }).jsonSchema },
+        }
+      : { type: "json_object" as const };
+}
+
 export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
   const modelId = options.model ?? "gpt-4o-mini";
 
@@ -31,26 +48,13 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       const openaiClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      // Use strict json_schema mode for Zod, non-strict for raw jsonSchema, json_object otherwise
-      const responseFormat = isZodSchema(schema)
-        ? {
-            type: "json_schema" as const,
-            json_schema: { name: "output", strict: true, schema: toJsonSchema(schema as z.ZodType<any>) },
-          }
-        : "jsonSchema" in (schema as object)
-          ? {
-              type: "json_schema" as const,
-              json_schema: { name: "output", strict: false, schema: (schema as { jsonSchema: Record<string, unknown> }).jsonSchema },
-            }
-          : { type: "json_object" as const };
-
       const response = await openaiClient.chat.completions.create({
         model: modelId,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        response_format: responseFormat,
+        response_format: responseFormatFor(schema),
       });
 
       const raw: string = response.choices[0]?.message?.content ?? "";
@@ -70,6 +74,27 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       });
 
       return response.choices[0]?.message?.content ?? "";
+    },
+
+    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+      const openaiClient = await client();
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+
+      const stream = await openaiClient.chat.completions.create({
+        model: modelId,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        response_format: responseFormatFor(schema),
+        stream: true,
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const chunk of stream as AsyncIterable<any>) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      }
     },
   };
 }

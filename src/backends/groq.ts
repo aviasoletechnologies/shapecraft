@@ -57,5 +57,26 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
 
       return response.choices[0]?.message?.content ?? "";
     },
+
+    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+      const groqClient = await client();
+      const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
+
+      const stream = await groqClient.chat.completions.create({
+        model: modelId,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        ...(!isXmlInput(schema) ? { response_format: { type: "json_object" } } : {}),
+        stream: true,
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const chunk of stream as AsyncIterable<any>) {
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      }
+    },
   };
 }
