@@ -224,21 +224,108 @@ console.log(result.data); // { name: "John Doe", age: 35 }
 > XML is prompt-driven on all backends (no token-level constraint), so a capable
 > model gives the most reliable output on deeply nested templates.
 
+### GBNF grammar
+
+Pass a raw [GBNF](https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md)
+(GGML BNF) grammar string. `result.data` is the **raw string** that conforms to the
+grammar — GBNF describes a string language, not a JSON shape, so it's never parsed.
+
+```typescript
+const result = await generate(model, {
+  gbnf: `
+    root  ::= year "-" month "-" day
+    year  ::= [0-9]{4}
+    month ::= [0-9]{2}
+    day   ::= [0-9]{2}
+  `,
+}, "When did WWII end in Europe?");
+
+console.log(result.data); // "1945-05-08"
+```
+
+**The guarantee is backend-dependent — this is the one input where that's true.** On
+`llamaCpp()` the grammar is enforced at the **token level**: the model literally cannot
+emit a token that breaks the grammar, so the output is valid *by construction*
+(`constrained`). On every other backend (`openai`, `groq`, `anthropic`, `ollama`) there
+is no grammar parameter, so the grammar is injected into the prompt (best-effort) and the
+returned string is validated against the grammar by a **bundled GBNF interpreter**, then
+retried on a mismatch.
+
+```typescript
+import { llamaCpp } from "@aviasole/shapecraft";
+
+const local = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" }); // npm install node-llama-cpp
+const { data } = await generate(local, {
+  gbnf: `root ::= "positive" | "negative" | "neutral"`,
+}, "Sentiment of: 'I love this!'");
+// data: "positive" — constrained, cannot be anything else
+```
+
+#### What the interpreter enforces (and what it doesn't)
+
+The bundled interpreter is a deliberate **subset**, in the same spirit as `checkJsonSchema`
+(a useful subset of JSON Schema, not the whole spec). A malformed grammar, or one using an
+unsupported construct, throws **before the model is ever called** — a grammar bug, not
+something to retry.
+
+| GBNF construct | Supported |
+|---|---|
+| String literals, rule references, sequences | ✅ |
+| Alternation `\|`, grouping `( )` | ✅ |
+| Repetition `*` `+` `?` `{m}` `{m,}` `{m,n}` | ✅ |
+| Character classes `[a-z]` `[^0-9]`, ranges, escapes (`\n \t \" \xNN \uNNNN`) | ✅ |
+| `#` line comments | ✅ |
+| **Left-recursive rules** | ⚠️ not fully supported — validation may reject; never hangs |
+| **Deeply right-recursive rule *references*** (`list ::= item "," list \| item`) | ⚠️ has a real depth limit (see below) |
+| Nested/imported grammars, llama.cpp extensions | ❌ throws at parse time |
+
+The subset applies on **all** backends, including `llamaCpp()` (the JS validation still runs
+for pipeline uniformity). As always, the grammar constrains **shape, not truth** — a
+conforming string can still be a wrong answer (see
+[guarantees](#what-shapecraft-guarantees--and-what-it-doesnt)).
+
+**Stress-tested failure modes (what actually breaks, found by deliberately trying to break it):**
+
+- **Catastrophic/exponential backtracking — not reproducible.** The classic patterns that
+  blow up naive backtracking regex engines (e.g. `("a" "a"?)* "b"` against a long run of `a`
+  with no trailing `b`) resolve in milliseconds here, because the matcher dedupes by
+  *position reached*, not by path taken — it's closer to a bounded reachability search than
+  a naive backtracker.
+- **A genuinely adversarial grammar can still exceed the step budget** — a ~26-way
+  variable-length ambiguous alternation over a 300k-character input with an unmatchable
+  terminator trips it in well under a second, throwing a clear "step budget" error rather
+  than hanging. This is a real, if hard-to-reach, backstop — not just an untested code path.
+- **Deep right-recursion via a rule *reference* has a hard limit — this is a real gap, not
+  just theoretical.** `*` and `+` are matched iteratively (no recursion, no limit tested up to
+  50k+ repetitions). But a rule written as `list ::= item "," list | item` recurses through
+  the JS call stack once per repetition, and breaks — empirically, somewhere in the
+  900–1000 repetition range on a typical build. Past that point `matchesGbnf` throws a clear,
+  actionable error (*"GBNF grammar recursion is too deep... prefer `*`/`+`"*) instead of a raw
+  native stack-overflow trace. **If your grammar needs a long repeated sequence, write it
+  with `*`/`+`, not recursive rule references** — this is the one place "conventionally
+  right-recursive GBNF" needs a caveat.
+
 ## Backends & Guarantee Levels
 
 | Backend | Guarantee | Mechanism |
 |---|---|---|
 | `openai()` | `native` | Server-side strict JSON schema |
 | `groq()` | `native` | JSON mode |
-| `ollama()` | `constrained` | Token-level GBNF grammar |
+| `ollama()` | `constrained` | Token-level JSON-schema constraint |
+| `llamaCpp()` | `constrained` | Token-level GBNF grammar (local `.gguf` via node-llama-cpp) |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
 
+> `llamaCpp()` is `constrained` for a `{ gbnf }` input (token-level). For other schema
+> types (Zod / jsonSchema / …) it currently runs a best-effort prompt path until the
+> JSON-Schema→GBNF converter lands — treat those as best-effort despite the nominal level.
+
 ```typescript
-import { openai, groq, ollama, anthropic } from "@aviasole/shapecraft";
+import { openai, groq, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
 
 const gpt    = openai({ model: "gpt-4o-mini" });
 const fast   = groq({ model: "llama-3.3-70b-versatile" });
 const local  = ollama({ model: "llama3.2" });
+const native = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
 const claude = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
 ```
 
