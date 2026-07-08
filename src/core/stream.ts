@@ -1,8 +1,9 @@
-import type { GenerateOptions, GenerateResult, SchemaInput, ShapecraftModel, StreamEvent, StreamHandle } from "../types.js";
+import type { GenerateOptions, GenerateResult, ResultMetadata, SchemaInput, ShapecraftModel, StreamEvent, StreamHandle } from "../types.js";
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
-import { generate } from "./generate.js";
+import { generate, parseProviderModel } from "./generate.js";
 import { parseAndValidate } from "./parse.js";
 import { extractCompletedTopLevelFields, validateFieldIfPossible } from "./incremental.js";
+import { createTimeoutGuard } from "./timeout.js";
 
 /**
  * Single-consumer async channel. textStream and events are two independent
@@ -59,7 +60,8 @@ export function generateStream<T>(
   options: GenerateOptions = {}
 ): StreamHandle<T> {
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt } = options;
+  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator } = options;
+  const { provider, model: modelName } = parseProviderModel(model.id);
 
   const textChannel = createChannel<string>();
   const eventChannel = createChannel<StreamEvent<T>>();
@@ -96,6 +98,15 @@ export function generateStream<T>(
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // Fail fast on an already-aborted signal — skip calling the backend
+      // entirely rather than invoking it just to have the race discard it.
+      if (signal?.aborted) {
+        finish();
+        rejectResult(signal.reason ?? new DOMException("Aborted", "AbortError"));
+        return;
+      }
+
+      const t0 = Date.now();
       emit({ type: "attempt-start", attempt });
       let buffer = "";
       const validatedKeys = new Set<string>();
@@ -103,8 +114,23 @@ export function generateStream<T>(
       const partialValue: Record<string, unknown> = {};
       let earlyFailure: SchemaViolationError | null = null;
 
+      const { guard, signal: callSignal, cleanup } = createTimeoutGuard(timeoutMs, signal);
+      const iterator = model.generateStream<T>(
+        prompt,
+        schema,
+        systemPrompt,
+        callSignal ? { signal: callSignal } : undefined
+      )[Symbol.asyncIterator]();
+
       try {
-        for await (const delta of model.generateStream<T>(prompt, schema, systemPrompt)) {
+        while (true) {
+          // Race each chunk (not the whole stream) against the shared guard,
+          // so a hung backend that never yields a next chunk still respects
+          // timeoutMs/signal instead of blocking generateStream() forever.
+          const next = await Promise.race([iterator.next(), guard]);
+          if (next.done) break;
+          const delta = next.value;
+
           buffer += delta;
           emit({ type: "delta", text: delta, attempt });
 
@@ -125,7 +151,7 @@ export function generateStream<T>(
               continue; // shouldn't happen — the scanner only returns syntactically closed values
             }
 
-            const fieldError = validateFieldIfPossible(schema, key, value);
+            const fieldError = validateFieldIfPossible(schema, key, value, { jsonSchemaValidator });
             if (fieldError) {
               earlyFailure = new SchemaViolationError(buffer, { field: key, error: fieldError });
               break;
@@ -138,12 +164,16 @@ export function generateStream<T>(
           if (earlyFailure) break; // stop consuming further deltas — no point streaming a doomed attempt
         }
       } catch (err) {
-        // Transport/network error (or a synchronous validation throw, e.g. a bad
-        // XML template) — not a SchemaViolationError, so it is never retried.
+        // Transport/network error, a timeout/abort, or a synchronous validation
+        // throw (e.g. a bad XML template) — not a SchemaViolationError, so it
+        // is never retried.
+        await iterator.return?.().catch(() => {}); // stop the underlying generator cleanly
+        cleanup();
         finish();
         rejectResult(err);
         return;
       }
+      cleanup();
 
       if (earlyFailure) {
         emit({ type: "attempt-failed", attempt, error: earlyFailure });
@@ -160,7 +190,8 @@ export function generateStream<T>(
         // the extraction regex matches the whole string (no-op); for a
         // best-effort backend that wraps JSON in prose, it's required.
         const data = parseAndValidate<T>(buffer, schema, { extractJson: true });
-        const finalResult: GenerateResult<T> = { data, guaranteeLevel: model.guaranteeLevel, attempts: attempt };
+        const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
+        const finalResult: GenerateResult<T> = { data, guaranteeLevel: model.guaranteeLevel, attempts: attempt, metadata };
         emit({ type: "done", result: finalResult });
         finish();
         resolveResult(finalResult);
