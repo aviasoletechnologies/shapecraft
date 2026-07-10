@@ -94,9 +94,6 @@
   streaming-parser-refactor item in PLAN-Updated.md). `turnaround` calls are also
   out of scope for the client wrapper in v1 — use top-level
   `generate(..., { turnaround: true })`.
-- This branch (`architecture-hardening`) was cut from `main` at the stream-support
-  merge point, independent of the (still unmerged) fhir-support/gbnf-support
-  branches — those lineages will need reconciling on merge.
 
 ## [2.0.1] - 2026-07-04
 
