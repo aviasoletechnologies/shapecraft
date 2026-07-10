@@ -1,0 +1,58 @@
+name: Bug report
+description: Something isn't working the way the README/CHANGELOG says it should
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you expect, and what actually happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The schema, backend, and prompt/options that trigger it. A few lines of code is far more useful than a description.
+      render: typescript
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: shapecraft version
+      placeholder: e.g. 2.0.3 (from package.json / npm ls @aviasole/shapecraft)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      multiple: true
+      options:
+        - openai
+        - groq
+        - anthropic
+        - ollama
+        - custom ShapecraftModel
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: e.g. 20.11.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error output, stack trace, or context that doesn't fit above.
+    validations:
+      required: false
