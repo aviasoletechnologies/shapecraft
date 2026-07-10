@@ -1,11 +1,23 @@
 import { z } from "zod";
-import type { GbnfInput, SchemaInput, XmlInput } from "../types.js";
+import type { GbnfInput, JsonSchemaValidator, SchemaInput, XmlInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { finalizeXmlOutput, isNonEmpty } from "./xml.js";
 import { matchesGbnf } from "./gbnf.js";
 
+// Duck-typed rather than `instanceof z.ZodType`: a `file:`-linked or
+// nested-install consumer can end up with a different zod module instance
+// (or major version) than the one this schema was built with, which makes
+// `instanceof` false even for a genuine Zod schema. `_def`/`parse`/`safeParse`
+// are present on every ZodType across zod v3 and v4, and none of the other
+// SchemaInput shapes (jsonSchema/pattern/validate/xml) have all three.
 export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
-  return schema instanceof z.ZodType;
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    "_def" in schema &&
+    typeof (schema as { parse?: unknown }).parse === "function" &&
+    typeof (schema as { safeParse?: unknown }).safeParse === "function"
+  );
 }
 
 export function isXmlInput(schema: SchemaInput): schema is XmlInput {
@@ -68,7 +80,11 @@ export function checkJsonSchema(value: unknown, schema: Record<string, unknown>)
   }
 }
 
-export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
+export function validateOutput<T>(
+  output: unknown,
+  schema: SchemaInput<T>,
+  opts: { jsonSchemaValidator?: JsonSchemaValidator | undefined } = {}
+): T {
   if (isZodSchema(schema)) {
     const result = schema.safeParse(nullToUndefined(output));
     if (!result.success) throw new SchemaViolationError(JSON.stringify(output), result.error);
@@ -77,7 +93,8 @@ export function validateOutput<T>(output: unknown, schema: SchemaInput<T>): T {
 
   if ("jsonSchema" in schema) {
     try {
-      checkJsonSchema(output, schema.jsonSchema);
+      const validate = opts.jsonSchemaValidator ?? checkJsonSchema;
+      validate(output, schema.jsonSchema);
     } catch (err) {
       throw new SchemaViolationError(JSON.stringify(output), err);
     }

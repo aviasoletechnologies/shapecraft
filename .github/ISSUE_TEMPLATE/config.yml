@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/aviasoletechnologies/shapecraft/issues/new
+    about: Not a bug or feature request? Open a blank issue - the maintainers will triage it.

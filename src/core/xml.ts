@@ -57,9 +57,11 @@ export function stripXmlProlog(xml: string): string {
 
 // ─── XML parser ───────────────────────────────────────────────────────────────
 
+const ATTR_PREFIX = "@_";
+
 const parser = new XMLParser({
   ignoreAttributes: false,
-  attributeNamePrefix: "@_",
+  attributeNamePrefix: ATTR_PREFIX,
   isArray: () => false,
   parseTagValue: true,
   trimValues: true,
@@ -67,7 +69,7 @@ const parser = new XMLParser({
 
 const builder = new XMLBuilder({
   ignoreAttributes: false,
-  attributeNamePrefix: "@_",
+  attributeNamePrefix: ATTR_PREFIX,
   format: true,
   indentBy: "  ",
   suppressBooleanAttributes: false,
@@ -190,7 +192,15 @@ export function isNonEmpty(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0 && value.some(isNonEmpty);
-  if (typeof value === "object") return Object.keys(value).length > 0;
+  if (typeof value === "object") {
+    // Attribute keys (parsed with ATTR_PREFIX) don't count as content on their
+    // own — an element can carry a real attribute yet still have empty text,
+    // e.g. `<title lang="en"></title>` parses to `{ "@_lang": "en" }`, which
+    // has a key but no actual text/child content.
+    return Object.entries(value as Record<string, unknown>).some(
+      ([key, v]) => !key.startsWith(ATTR_PREFIX) && isNonEmpty(v)
+    );
+  }
   return true; // numbers, booleans
 }
 

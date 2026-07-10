@@ -6,6 +6,8 @@ Structured output generation for LLMs in Node.js. Token-level constraints for lo
 [![CI](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+![shapecraft demo](assets/demo.gif)
+
 ## Install
 
 ```bash
@@ -329,6 +331,42 @@ const native = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
 const claude = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
 ```
 
+### Model Capabilities
+
+Every built-in backend also exposes `capabilities` — an explicit, inspectable alternative to duck-typing `typeof model.generateStream === "function"` for routing logic:
+
+```typescript
+console.log(claude.capabilities);
+// { streaming: true, chat: true, structuredOutput: true, toolCalling: false }
+```
+
+```typescript
+interface ModelCapabilities {
+  streaming: boolean;       // has generateStream()
+  chat: boolean;            // has chat() - required for turnaround: true
+  structuredOutput: boolean; // has generate() - always true
+  toolCalling: boolean;     // not yet supported by any backend
+}
+```
+
+`capabilities` is optional on `ShapecraftModel` — a custom model implementation that predates this field (or simply doesn't set it) still satisfies the interface unchanged, and `model.capabilities` is `undefined` for it. `chat?`/`generateStream?` remain the actual methods the core calls; `capabilities` is just a declared summary of the same information, not a replacement mechanism.
+
+## How shapecraft compares
+
+Other libraries solve overlapping parts of this problem well. This is what's actually different, not a scorecard:
+
+| Capability | Instructor-js | zod-gpt | Vercel AI SDK (`generateObject`) | shapecraft |
+|---|---|---|---|---|
+| Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Anthropic, Ollama |
+| Local model support | - | - | no grammar-level constraint | Ollama with token-level GBNF grammar |
+| Per-provider reliability signal | - | - | - | `guaranteeLevel`: `native` / `constrained` / `best-effort` |
+| Retry on schema failure | not documented | fixed 3 attempts, 60s timeout | configurable `maxRetries` | configurable, only on schema-validation failure |
+| Timeout / cancellation | not documented | hardcoded 60s | via provider fetch options | `timeoutMs` / `AbortSignal`, enforced at the core regardless of backend |
+| Streaming | yes | - | yes (`streamObject`) | yes, with per-field incremental validation |
+| Schema input types | Zod only | Zod only | Zod, Valibot, JSON schema | Zod, JSON schema, regex, custom validator, XML |
+
+The gap that actually matters: none of the others tell you *how much* to trust a given provider's structured output, or give local models the same real enforcement cloud providers get. shapecraft's `guaranteeLevel` makes that explicit instead of leaving it as something you find out in production.
+
 ## Streaming
 
 `generateStream()` streams tokens live for UX, but validates the assembled response exactly once, through the same pipeline as `generate()` — streaming is purely a transport layer, not a different guarantee. Falls back to one-shot `generate()` for a model without streaming support.
@@ -366,6 +404,155 @@ for await (const event of stream2.events) {
 **Retries are visible, not silent.** Non-streaming `generate()` retries invisibly — a failed attempt is simply discarded and re-asked. With streaming, tokens have already been shown before validation can run, so a failed attempt can't be un-sent: it emits `attempt-failed` and starts a fresh `attempt-start`. A UI rendering partial text should clear its buffer on `attempt-failed`/`attempt-start`. There's no "only show validated tokens" mode — that would mean waiting for the whole response, which isn't streaming; use non-streaming `generate()` if you need that.
 
 **Streaming smoothness tracks guarantee level.** `native`/`constrained` backends (OpenAI, Groq, Ollama) rarely fail validation — the server already constrains tokens as they're generated — so streams almost never restart. `best-effort` (Anthropic) has no such constraint, so a stream may visibly restart more often.
+
+## createClient() & Middleware
+
+For cross-cutting concerns (logging, caching, telemetry) that would otherwise mean editing `generate()` itself, wrap it once with `createClient()` — a Koa-style onion middleware chain plus client-level defaults.
+
+```typescript
+import { createClient, loggingMiddleware } from "@aviasole/shapecraft";
+
+const client = createClient({
+  middleware: [loggingMiddleware()],
+  retry: { max: 3 },
+  timeoutMs: 10_000,
+});
+
+const result = await client.generate(model, schema, prompt);
+```
+
+A middleware sees the request before `next()` runs and the result/error after — outer middlewares wrap inner ones, like nested boxes, not a flat sequence:
+
+```typescript
+import type { Middleware } from "@aviasole/shapecraft";
+
+const timing: Middleware = async (ctx, next) => {
+  const t0 = Date.now();
+  const result = await next();          // everything below this middleware runs first
+  console.log(`${ctx.model.id} took ${Date.now() - t0}ms`);
+  return result;
+};
+```
+
+A middleware that never calls `next()` short-circuits the real call entirely — the standard shape for a cache:
+
+```typescript
+import type { Middleware, GenerateResult } from "@aviasole/shapecraft";
+
+const cache = new Map<string, GenerateResult<unknown>>();
+
+const cachingMiddleware: Middleware = async (ctx, next) => {
+  const key = `${ctx.model.id}:${ctx.prompt}`;
+  const hit = cache.get(key);
+  if (hit) return hit;                  // model never called
+  const result = await next();
+  cache.set(key, result);
+  return result;
+};
+```
+
+`createClient()` is purely additive — existing direct calls to `generate()`/`generateStream()` are unaffected. Middleware wraps `generate()` only; `generateStream()` picks up the client's `retry`/`timeoutMs`/`jsonSchemaValidator` defaults but isn't intercepted by middleware (its async-iterable shape doesn't fit the simple before/after `next()` model).
+
+## Batch Generation
+
+Run multiple independent prompts (each with its own model/schema/options) in parallel, capped at `concurrency` in flight at once:
+
+```typescript
+import { generateBatch } from "@aviasole/shapecraft";
+
+const results = await generateBatch(
+  [
+    { model, schema, prompt: "Extract: Jane Doe, 28" },
+    { model, schema, prompt: "Extract: John Smith, 41" },
+    { model, schema, prompt: "Extract: Ada Lovelace, 36" },
+  ],
+  { concurrency: 2 } // omit to run every item concurrently, uncapped
+);
+
+for (const r of results) {
+  if (r.status === "fulfilled") console.log(r.value.data);
+  else console.error("failed:", r.reason);
+}
+```
+
+Each item settles independently - `Promise.allSettled`-style, never `Promise.all`-style - so one bad prompt doesn't lose the results of the rest of the batch. Order is preserved: `results[i]` always corresponds to the item at `items[i]`, regardless of which finishes first.
+
+Available through `createClient()` too, so each item gets the client's middleware/retry/timeout/validator defaults, same as calling `client.generate()` on it individually:
+
+```typescript
+const client = createClient({ retry: { max: 3 } });
+const results = await client.generateBatch(items, { concurrency: 5 });
+```
+
+## Result Metadata
+
+Every `GenerateResult` includes `metadata`:
+
+```typescript
+const result = await generate(model, schema, prompt);
+
+console.log(result.metadata);
+// { provider: "groq", model: "llama-3.3-70b-versatile", latencyMs: 284 }
+```
+
+```typescript
+interface ResultMetadata {
+  provider: string;
+  model: string;
+  latencyMs: number;
+  tokens?: { input: number; output: number };
+  finishReason?: string;
+  requestId?: string;
+  cost?: number;
+}
+```
+
+`provider`, `model`, and `latencyMs` are always populated by the core (parsed from `model.id`, measured around the call). `tokens`, `finishReason`, `requestId`, and `cost` are reserved for a future backend hook that surfaces the underlying API response's usage data — they're `undefined` today, on every backend.
+
+## Timeouts & Cancellation
+
+Bound or cancel a single attempt with `timeoutMs` and/or an `AbortSignal`:
+
+```typescript
+import { TimeoutError } from "@aviasole/shapecraft";
+
+try {
+  const result = await generate(model, schema, prompt, { timeoutMs: 5_000 });
+} catch (err) {
+  if (err instanceof TimeoutError) {
+    console.error(`Timed out after ${err.timeoutMs}ms`);
+  }
+}
+```
+
+```typescript
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 5_000);
+
+const result = await generate(model, schema, prompt, { signal: controller.signal });
+```
+
+Enforced at the core level for every backend — the retry loop always stops waiting once the timeout/signal fires, even against a backend that ignores cancellation entirely. All four built-in backends (`openai`, `groq`, `anthropic`, `ollama`) additionally forward the signal to the underlying SDK/fetch call for real request cancellation, not just abandonment. `TimeoutError` is never retried (it isn't a `SchemaViolationError`).
+
+## Pluggable JSON Schema Validation
+
+The built-in `jsonSchema` check (`checkJsonSchema`) is intentionally shallow — it validates types and `required` presence, not `minLength`/`maximum`/`pattern`/`$ref`/etc. Rather than expanding it, it's pluggable: supply your own validator (or wire up AJV) via `jsonSchemaValidator`.
+
+```typescript
+const strictValidator = (value: unknown, schema: Record<string, unknown>) => {
+  // throw to reject; return normally to accept
+  const v = value as { age?: number };
+  if (typeof v.age !== "number" || v.age < 0 || v.age > 130) {
+    throw new Error("age must be a plausible human age");
+  }
+};
+
+const result = await generate(model, { jsonSchema: PersonJsonSchema }, prompt, {
+  jsonSchemaValidator: strictValidator,
+});
+```
+
+Applies to both `generate()`'s final check and `generateStream()`'s per-field incremental (`partial`) validation, so a custom validator behaves consistently whether or not you're streaming. Omit it and you get today's `checkJsonSchema` behavior, unchanged.
 
 ## FHIR presets
 
@@ -413,6 +600,15 @@ const result = await generate(model, schema, prompt, {
   systemPrompt: "You are a data extraction assistant.",
 });
 ```
+
+| Option | Purpose |
+|---|---|
+| `maxRetries` | attempts before throwing `MaxRetriesExceededError` (default: 2) |
+| `temperature` | forwarded to the backend, where supported |
+| `systemPrompt` | prepended instruction, combined with the schema-derived prompt |
+| `timeoutMs` | bound a single attempt's wall-clock time — see [Timeouts & Cancellation](#timeouts--cancellation) |
+| `signal` | an `AbortSignal` to cancel an in-flight attempt — see [Timeouts & Cancellation](#timeouts--cancellation) |
+| `jsonSchemaValidator` | override the built-in `jsonSchema` structural check — see [Pluggable JSON Schema Validation](#pluggable-json-schema-validation) |
 
 ## Error Handling
 

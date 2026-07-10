@@ -1,4 +1,4 @@
-import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, ModelCallOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { buildStructuredPrompt } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
 import { isXmlInput, isGbnfInput } from "../core/validate.js";
@@ -30,19 +30,24 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
   return {
     id: `groq:${modelId}`,
     guaranteeLevel: "native",
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const groqClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const response = await groqClient.chat.completions.create({
-        model: modelId,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
-      });
+      const response = await groqClient.chat.completions.create(
+        {
+          model: modelId,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          // XML and GBNF schemas must not use json_object mode — Groq rejects it when prompt lacks "json"
+          ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       const raw: string = response.choices[0]?.message?.content ?? "";
 
@@ -63,19 +68,27 @@ export function groq(options: GroqBackendOptions = {}): ShapecraftModel {
       return response.choices[0]?.message?.content ?? "";
     },
 
-    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+    async *generateStream<T>(
+      prompt: string,
+      schema: SchemaInput<T>,
+      systemPrompt?: string,
+      callOptions?: ModelCallOptions
+    ): AsyncIterable<string> {
       const groqClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const stream = await groqClient.chat.completions.create({
-        model: modelId,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
-        stream: true,
-      });
+      const stream = await groqClient.chat.completions.create(
+        {
+          model: modelId,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          ...(wantsJsonMode(schema) ? { response_format: { type: "json_object" } } : {}),
+          stream: true,
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const chunk of stream as AsyncIterable<any>) {
