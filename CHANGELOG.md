@@ -1,11 +1,9 @@
 # Changelog
 
-## [2.1.0] - 2026-07-06
+## [2.2.0] - 2026-07-10
 
 ### Added
-- FHIR R4 preset schemas via `@aviasole/shapecraft/fhir` entrypoint - Patient, Observation,
-  Condition, MedicationRequest, Encounter. Each is a ready-to-use `SchemaInput` with a typed
-  result interface, so it works with `generate()`/`generateStream()` unchanged.
+
 - Raw GBNF grammar input - `generate(model, { gbnf: grammarString }, prompt)`. Output is the
   raw string that conforms to the grammar.
 - `llamaCpp()` backend (node-llama-cpp) - applies a GBNF grammar at the token level, so
@@ -17,6 +15,7 @@
   with other string-language inputs.
 
 ### Fixed
+
 - `checkJsonSchema` enforces `required` fields as present AND non-empty, matching the XML
   validation path - stops a constrained grammar from satisfying a required field with an
   empty `""`/`[]`/`{}`.
@@ -28,6 +27,14 @@
   `*`/`+`") when a deeply right-recursive rule reference exceeds the JS call stack
   (empirically ~900-1000 repetitions), instead of letting a raw native stack-overflow
   `RangeError` propagate.
+
+## [2.1.0] - 2026-07-10
+
+### Added
+
+- FHIR R4 preset schemas via `@aviasole/shapecraft/fhir` entrypoint - Patient, Observation,
+  Condition, MedicationRequest, Encounter. Each is a ready-to-use `SchemaInput` with a typed
+  result interface, so it works with `generate()`/`generateStream()` unchanged.
 
 ## [2.0.4] - 2026-07-10
 
