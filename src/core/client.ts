@@ -1,11 +1,14 @@
 import type {
   BatchItem,
   BatchResult,
+  ConfidenceScorer,
   GenerateBatchOptions,
   GenerateOptions,
   GenerateResult,
   JsonSchemaValidator,
+  PostProcessor,
   SchemaInput,
+  SemanticValidator,
   ShapecraftModel,
   StreamHandle,
 } from "../types.js";
@@ -24,6 +27,14 @@ export interface CreateClientOptions {
   timeoutMs?: number;
   /** Default pluggable JSON Schema validator (see `GenerateOptions.jsonSchemaValidator`) for every call through this client. */
   jsonSchemaValidator?: JsonSchemaValidator;
+  /** Default semantic validation stage (see `GenerateOptions.semanticValidator`) for every call through this client. */
+  semanticValidator?: SemanticValidator<unknown>;
+  /** Default confidence scoring stage (see `GenerateOptions.confidenceScorer`) for every call through this client. */
+  confidenceScorer?: ConfidenceScorer<unknown>;
+  /** Default minimum confidence threshold (see `GenerateOptions.minConfidence`) for every call through this client. */
+  minConfidence?: number;
+  /** Default post-processing stage (see `GenerateOptions.postProcessors`) for every call through this client. */
+  postProcessors?: PostProcessor<unknown>[];
 }
 
 export interface ShapecraftClient {
@@ -62,6 +73,10 @@ export function createClient(clientOptions: CreateClientOptions = {}): Shapecraf
       ...(clientOptions.retry?.max !== undefined ? { maxRetries: clientOptions.retry.max } : {}),
       ...(clientOptions.timeoutMs !== undefined ? { timeoutMs: clientOptions.timeoutMs } : {}),
       ...(clientOptions.jsonSchemaValidator !== undefined ? { jsonSchemaValidator: clientOptions.jsonSchemaValidator } : {}),
+      ...(clientOptions.semanticValidator !== undefined ? { semanticValidator: clientOptions.semanticValidator } : {}),
+      ...(clientOptions.confidenceScorer !== undefined ? { confidenceScorer: clientOptions.confidenceScorer } : {}),
+      ...(clientOptions.minConfidence !== undefined ? { minConfidence: clientOptions.minConfidence } : {}),
+      ...(clientOptions.postProcessors !== undefined ? { postProcessors: clientOptions.postProcessors } : {}),
       ...options, // per-call options always win over client-level defaults
     };
   }
