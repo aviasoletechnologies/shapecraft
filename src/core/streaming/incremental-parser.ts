@@ -1,18 +1,14 @@
-import { z } from "zod";
-import type { JsonSchemaValidator, SchemaInput } from "../types.js";
-import { checkJsonSchema, isXmlInput, isGbnfInput, isZodSchema } from "./validate.js";
-
 /**
  * Scans a growing JSON buffer for top-level object fields whose value has
  * fully closed syntactically (string/number/bool/null terminated, or a
  * nested object/array's matching bracket reached at depth 0), and returns
- * their raw JSON text. Fields still being written are skipped — they'll show
+ * their raw JSON text. Fields still being written are skipped - they'll show
  * up on a later call once complete. Only understands an object at the root;
  * any other root shape (array, XML, plain string) returns {} immediately,
  * which is the correct "not applicable" result for those schema types.
  *
  * This gives field-level completion boundaries without a full recursive
- * parse — nested content inside a field's value is treated as an opaque
+ * parse - nested content inside a field's value is treated as an opaque
  * blob (validated as a whole once that field closes), not decomposed further.
  */
 export function extractCompletedTopLevelFields(buffer: string): Record<string, string> {
@@ -24,7 +20,7 @@ export function extractCompletedTopLevelFields(buffer: string): Record<string, s
     while (i < n && /\s/.test(buffer[i]!)) i++;
   };
 
-  // Find the first '{' anywhere, not just at position 0 — a best-effort backend
+  // Find the first '{' anywhere, not just at position 0 - a best-effort backend
   // may wrap the object in prose or a ```json fence (the same tolerance the
   // final extractJson step already applies). A stray '{' in unrelated prose
   // is harmless: the very next check requires a '"' key start immediately
@@ -124,7 +120,7 @@ export function extractCompletedTopLevelFields(buffer: string): Record<string, s
       if (!closed) break;
       valueEnd = i;
     } else {
-      // number / true / false / null — needs a terminator to be sure it's
+      // number / true / false / null - needs a terminator to be sure it's
       // not still growing (e.g. "3" could still become "30").
       while (i < n && !/[,}\s]/.test(buffer[i]!)) i++;
       if (i >= n) break;
@@ -138,50 +134,49 @@ export function extractCompletedTopLevelFields(buffer: string): Record<string, s
       i++;
       continue;
     }
-    break; // "}" (object done) or anything else — stop scanning this pass
+    break; // "}" (object done) or anything else - stop scanning this pass
   }
 
   return result;
 }
 
+export interface CompletedField {
+  key: string;
+  value: unknown;
+}
+
 /**
- * Validates one field's value against its own sub-schema, if the root
- * schema decomposes into named fields (Zod object, or jsonSchema with
- * `properties`). Returns an error message on failure, or null if the field
- * passed (or there's no sub-schema for it / for this schema type at all —
- * XML, pattern, and custom-validator schemas never decompose).
+ * Incremental Parser stage: accumulates raw text deltas from the tokenizer
+ * and surfaces each newly-closed top-level field exactly once, already
+ * parsed to a JS value. One instance per stream attempt - a fresh instance
+ * is created for each retry, so a field seen on a failed attempt is not
+ * treated as "already seen" on the next.
  */
-export function validateFieldIfPossible<T>(
-  schema: SchemaInput<T>,
-  key: string,
-  value: unknown,
-  opts: { jsonSchemaValidator?: JsonSchemaValidator | undefined } = {}
-): string | null {
-  if (isXmlInput(schema) || isGbnfInput(schema)) return null;
+export class IncrementalParser {
+  private buffer = "";
+  private seenKeys = new Set<string>();
 
-  if (isZodSchema(schema)) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const shape = (schema as any).shape as Record<string, z.ZodTypeAny> | undefined;
-    const fieldSchema = shape?.[key];
-    if (!fieldSchema) return null;
-    const result = fieldSchema.safeParse(value);
-    return result.success ? null : `Field "${key}" failed schema validation: ${result.error.message}`;
-  }
+  /** Feed the next raw text delta; returns fields that closed for the first time. */
+  feed(delta: string): CompletedField[] {
+    this.buffer += delta;
+    const completed = extractCompletedTopLevelFields(this.buffer);
+    const newlyCompleted: CompletedField[] = [];
 
-  if ("jsonSchema" in (schema as object)) {
-    const properties = (schema as { jsonSchema: Record<string, unknown> }).jsonSchema.properties as
-      | Record<string, Record<string, unknown>>
-      | undefined;
-    const propSchema = properties?.[key];
-    if (!propSchema) return null;
-    try {
-      const validate = opts.jsonSchemaValidator ?? checkJsonSchema;
-      validate(value, propSchema);
-      return null;
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+    for (const [key, raw] of Object.entries(completed)) {
+      if (this.seenKeys.has(key)) continue;
+      this.seenKeys.add(key);
+      try {
+        newlyCompleted.push({ key, value: JSON.parse(raw) });
+      } catch {
+        // shouldn't happen - the scanner only returns syntactically closed values
+      }
     }
+
+    return newlyCompleted;
   }
 
-  return null; // pattern / custom validator schemas — no per-field decomposition
+  /** Full accumulated text so far (all deltas fed, in order). */
+  get text(): string {
+    return this.buffer;
+  }
 }

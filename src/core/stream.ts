@@ -1,59 +1,24 @@
-import type { GenerateOptions, GenerateResult, ResultMetadata, SchemaInput, ShapecraftModel, StreamEvent, StreamHandle } from "../types.js";
+import type { GenerateOptions, GenerateResult, ResultMetadata, SchemaInput, ShapecraftModel, StreamHandle } from "../types.js";
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 import { generate, parseProviderModel } from "./generate.js";
 import { parseAndValidate } from "./parse.js";
-import { extractCompletedTopLevelFields, validateFieldIfPossible } from "./incremental.js";
 import { isGbnfInput } from "./validate.js";
 import { createTimeoutGuard } from "./timeout.js";
+import { tokenize } from "./streaming/tokenizer.js";
+import { IncrementalParser } from "./streaming/incremental-parser.js";
+import { validateFieldIfPossible } from "./streaming/validator.js";
+import { StreamEmitter } from "./streaming/emitter.js";
 
 /**
- * Single-consumer async channel. textStream and events are two independent
- * channels fed by the same pump — each is meant to be iterated by at most one
- * consumer, matching how streamGenerate()'s two views are actually used.
+ * Orchestrates the four streaming stages per attempt:
+ *
+ *   Tokenizer (tokenize) -> Incremental Parser (IncrementalParser) ->
+ *   Validator (validateFieldIfPossible / parseAndValidate) -> Emitter (StreamEmitter)
+ *
+ * This function owns only the retry/timeout/abort control flow - each stage
+ * is an independent, separately testable unit that knows nothing about the
+ * others.
  */
-function createChannel<T>(): { push(item: T): void; end(): void; iterable: AsyncIterable<T> } {
-  const buffer: T[] = [];
-  let ended = false;
-  let waiting: ((result: IteratorResult<T>) => void) | null = null;
-
-  function push(item: T): void {
-    if (ended) return;
-    if (waiting) {
-      const resolve = waiting;
-      waiting = null;
-      resolve({ value: item, done: false });
-    } else {
-      buffer.push(item);
-    }
-  }
-
-  function end(): void {
-    if (ended) return;
-    ended = true;
-    if (waiting) {
-      const resolve = waiting;
-      waiting = null;
-      resolve({ value: undefined as unknown as T, done: true });
-    }
-  }
-
-  const iterable: AsyncIterable<T> = {
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<T>> {
-          if (buffer.length > 0) return Promise.resolve({ value: buffer.shift() as T, done: false });
-          if (ended) return Promise.resolve({ value: undefined as unknown as T, done: true });
-          return new Promise((resolve) => {
-            waiting = resolve;
-          });
-        },
-      };
-    },
-  };
-
-  return { push, end, iterable };
-}
-
 export function generateStream<T>(
   model: ShapecraftModel,
   schema: SchemaInput<T>,
@@ -64,8 +29,7 @@ export function generateStream<T>(
   const { systemPrompt, timeoutMs, signal, jsonSchemaValidator } = options;
   const { provider, model: modelName } = parseProviderModel(model.id);
 
-  const textChannel = createChannel<string>();
-  const eventChannel = createChannel<StreamEvent<T>>();
+  const emitter = new StreamEmitter<T>();
 
   let resolveResult!: (result: GenerateResult<T>) => void;
   let rejectResult!: (error: unknown) => void;
@@ -74,114 +38,88 @@ export function generateStream<T>(
     rejectResult = reject;
   });
 
-  function emit(event: StreamEvent<T>): void {
-    eventChannel.push(event);
-    if (event.type === "delta") textChannel.push(event.text);
-  }
-
-  function finish(): void {
-    eventChannel.end();
-    textChannel.end();
-  }
-
   async function pump(): Promise<void> {
-    // No streaming support on this model — fall back to one-shot generate(),
+    // No streaming support on this model - fall back to one-shot generate(),
     // and surface its full output as a single delta so textStream still works.
     if (!model.generateStream) {
-      emit({ type: "attempt-start", attempt: 1 });
+      emitter.emit({ type: "attempt-start", attempt: 1 });
       const finalResult = await generate<T>(model, schema, prompt, options);
       const text = typeof finalResult.data === "string" ? finalResult.data : JSON.stringify(finalResult.data, null, 2);
-      emit({ type: "delta", text, attempt: 1 });
-      emit({ type: "done", result: finalResult });
-      finish();
+      emitter.emit({ type: "delta", text, attempt: 1 });
+      emitter.emit({ type: "done", result: finalResult });
+      emitter.finish();
       resolveResult(finalResult);
       return;
     }
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // Fail fast on an already-aborted signal — skip calling the backend
+      // Fail fast on an already-aborted signal - skip calling the backend
       // entirely rather than invoking it just to have the race discard it.
       if (signal?.aborted) {
-        finish();
+        emitter.finish();
         rejectResult(signal.reason ?? new DOMException("Aborted", "AbortError"));
         return;
       }
 
       const t0 = Date.now();
-      emit({ type: "attempt-start", attempt });
-      let buffer = "";
-      const validatedKeys = new Set<string>();
+      emitter.emit({ type: "attempt-start", attempt });
+
+      const parser = new IncrementalParser();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const partialValue: Record<string, unknown> = {};
       let earlyFailure: SchemaViolationError | null = null;
 
       const { guard, signal: callSignal, cleanup } = createTimeoutGuard(timeoutMs, signal);
-      const iterator = model.generateStream<T>(
+      const source = model.generateStream<T>(
         prompt,
         schema,
         systemPrompt,
         callSignal ? { signal: callSignal } : undefined
-      )[Symbol.asyncIterator]();
+      );
 
       try {
-        while (true) {
-          // Race each chunk (not the whole stream) against the shared guard,
-          // so a hung backend that never yields a next chunk still respects
-          // timeoutMs/signal instead of blocking generateStream() forever.
-          const next = await Promise.race([iterator.next(), guard]);
-          if (next.done) break;
-          const delta = next.value;
-
-          buffer += delta;
-          emit({ type: "delta", text: delta, attempt });
+        for await (const delta of tokenize(source, guard)) {
+          emitter.emit({ type: "delta", text: delta, attempt });
 
           // Incremental per-field validation: the moment a top-level field's
           // JSON closes, check it against its own sub-schema immediately,
-          // instead of waiting for the whole object. Only applies to schemas
-          // that decompose into named fields (Zod object / jsonSchema with
-          // properties) — everything else is a no-op here. GBNF is a string
-          // language: a JSON-shaped grammar could otherwise trip the field
-          // scanner into emitting misleading `partial` events, so skip it.
-          const completedFields = isGbnfInput(schema) ? {} : extractCompletedTopLevelFields(buffer);
-          for (const [key, raw] of Object.entries(completedFields)) {
-            if (validatedKeys.has(key)) continue;
-            validatedKeys.add(key);
+          // instead of waiting for the whole object. Feed the parser on every
+          // delta so `parser.text` accumulates for the final whole-buffer
+          // check, but only emit per-field `partial`s for schemas that
+          // decompose into named fields. GBNF is a string language: a
+          // JSON-shaped grammar could otherwise trip the field scanner into
+          // emitting misleading `partial` events, so skip emission for it.
+          const completedFields = parser.feed(delta);
+          if (!isGbnfInput(schema)) {
+            for (const { key, value } of completedFields) {
+              const fieldError = validateFieldIfPossible(schema, key, value, { jsonSchemaValidator });
+              if (fieldError) {
+                earlyFailure = new SchemaViolationError(parser.text, { field: key, error: fieldError });
+                break;
+              }
 
-            let value: unknown;
-            try {
-              value = JSON.parse(raw);
-            } catch {
-              continue; // shouldn't happen — the scanner only returns syntactically closed values
+              partialValue[key] = value;
+              emitter.emit({ type: "partial", value: { ...partialValue } as Partial<T>, attempt });
             }
-
-            const fieldError = validateFieldIfPossible(schema, key, value, { jsonSchemaValidator });
-            if (fieldError) {
-              earlyFailure = new SchemaViolationError(buffer, { field: key, error: fieldError });
-              break;
-            }
-
-            partialValue[key] = value;
-            emit({ type: "partial", value: { ...partialValue } as Partial<T>, attempt });
           }
 
-          if (earlyFailure) break; // stop consuming further deltas — no point streaming a doomed attempt
+          if (earlyFailure) break; // stop consuming further deltas - no point streaming a doomed attempt
         }
       } catch (err) {
         // Transport/network error, a timeout/abort, or a synchronous validation
-        // throw (e.g. a bad XML template) — not a SchemaViolationError, so it
+        // throw (e.g. a bad XML template) - not a SchemaViolationError, so it
         // is never retried.
-        await iterator.return?.().catch(() => {}); // stop the underlying generator cleanly
         cleanup();
-        finish();
+        emitter.finish();
         rejectResult(err);
         return;
       }
       cleanup();
 
       if (earlyFailure) {
-        emit({ type: "attempt-failed", attempt, error: earlyFailure });
+        emitter.emit({ type: "attempt-failed", attempt, error: earlyFailure });
         if (attempt === maxRetries) {
-          finish();
+          emitter.finish();
           rejectResult(new MaxRetriesExceededError(maxRetries));
           return;
         }
@@ -189,25 +127,25 @@ export function generateStream<T>(
       }
 
       try {
-        // extractJson: true is safe unconditionally — for a clean JSON buffer
+        // extractJson: true is safe unconditionally - for a clean JSON buffer
         // the extraction regex matches the whole string (no-op); for a
         // best-effort backend that wraps JSON in prose, it's required.
-        const data = parseAndValidate<T>(buffer, schema, { extractJson: true });
+        const data = parseAndValidate<T>(parser.text, schema, { extractJson: true });
         const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
         const finalResult: GenerateResult<T> = { data, guaranteeLevel: model.guaranteeLevel, attempts: attempt, metadata };
-        emit({ type: "done", result: finalResult });
-        finish();
+        emitter.emit({ type: "done", result: finalResult });
+        emitter.finish();
         resolveResult(finalResult);
         return;
       } catch (err) {
         if (!(err instanceof SchemaViolationError)) {
-          finish();
+          emitter.finish();
           rejectResult(err);
           return;
         }
-        emit({ type: "attempt-failed", attempt, error: err });
+        emitter.emit({ type: "attempt-failed", attempt, error: err });
         if (attempt === maxRetries) {
-          finish();
+          emitter.finish();
           rejectResult(new MaxRetriesExceededError(maxRetries));
           return;
         }
@@ -217,9 +155,9 @@ export function generateStream<T>(
   }
 
   pump().catch((err) => {
-    finish();
+    emitter.finish();
     rejectResult(err);
   });
 
-  return { textStream: textChannel.iterable, events: eventChannel.iterable, result };
+  return { textStream: emitter.textStream, events: emitter.events, result };
 }

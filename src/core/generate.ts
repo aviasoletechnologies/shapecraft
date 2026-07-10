@@ -1,14 +1,17 @@
 import type {
+  ConfidenceScorer,
   GenerateOptions,
   GenerateResult,
+  PostProcessor,
   ResultMetadata,
   SchemaInput,
+  SemanticValidator,
   ShapecraftModel,
   TurnaroundOptions,
   TurnResult,
 } from "../types.js";
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
-import { validateOutput } from "./validate.js";
+import { runValidationPipeline } from "./validate.js";
 import { runTurnaround } from "./turnaround.js";
 import { createTimeoutGuard } from "./timeout.js";
 
@@ -42,7 +45,8 @@ export async function generate<T>(
   }
 
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator } = options;
+  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, semanticValidator, confidenceScorer, minConfidence, postProcessors } =
+    options;
   const { provider, model: modelName } = parseProviderModel(model.id);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -57,13 +61,20 @@ export async function generate<T>(
         model.generate<T>(prompt, schema, systemPrompt, callSignal ? { signal: callSignal } : undefined),
         guard,
       ]);
-      const data = validateOutput<T>(raw, schema, { jsonSchemaValidator });
+      const { data, confidence } = await runValidationPipeline<T>(raw, schema, prompt, {
+        jsonSchemaValidator,
+        semanticValidator: semanticValidator as SemanticValidator<T> | undefined,
+        confidenceScorer: confidenceScorer as ConfidenceScorer<T> | undefined,
+        minConfidence,
+        postProcessors: postProcessors as PostProcessor<T>[] | undefined,
+      });
       const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
       return {
         data,
         guaranteeLevel: model.guaranteeLevel,
         attempts: attempt,
         metadata,
+        ...(confidence === undefined ? {} : { confidence }),
       };
     } catch (err) {
       if (!(err instanceof SchemaViolationError)) throw err;

@@ -1,5 +1,13 @@
 import { z } from "zod";
-import type { GbnfInput, JsonSchemaValidator, SchemaInput, XmlInput } from "../types.js";
+import type {
+  ConfidenceScorer,
+  GbnfInput,
+  JsonSchemaValidator,
+  PostProcessor,
+  SchemaInput,
+  SemanticValidator,
+  XmlInput,
+} from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { finalizeXmlOutput, isNonEmpty } from "./xml.js";
 import { matchesGbnf } from "./gbnf.js";
@@ -137,4 +145,62 @@ export function validateOutput<T>(
   }
 
   throw new Error("Unknown schema type");
+}
+
+export interface ValidationPipelineOptions<T> {
+  jsonSchemaValidator?: JsonSchemaValidator | undefined;
+  semanticValidator?: SemanticValidator<T> | undefined;
+  confidenceScorer?: ConfidenceScorer<T> | undefined;
+  minConfidence?: number | undefined;
+  postProcessors?: PostProcessor<T>[] | undefined;
+}
+
+export interface ValidationPipelineResult<T> {
+  data: T;
+  confidence?: number;
+}
+
+/**
+ * `parse → structural validation → semantic validation → confidence scoring
+ * → post-processors → return`. Structural validation (`validateOutput`
+ * above) is the only required stage — every other stage runs only if the
+ * caller supplied it, and a stage failure throws `SchemaViolationError` so
+ * `generate()`'s retry loop treats it exactly like a structural failure.
+ * Post-processors run last and are never retried — they only reshape a
+ * value that already passed every check.
+ */
+export async function runValidationPipeline<T>(
+  output: unknown,
+  schema: SchemaInput<T>,
+  prompt: string,
+  opts: ValidationPipelineOptions<T> = {}
+): Promise<ValidationPipelineResult<T>> {
+  let data = validateOutput<T>(output, schema, { jsonSchemaValidator: opts.jsonSchemaValidator });
+
+  if (opts.semanticValidator) {
+    try {
+      await opts.semanticValidator(data, { prompt });
+    } catch (err) {
+      throw new SchemaViolationError(JSON.stringify(data), err);
+    }
+  }
+
+  let confidence: number | undefined;
+  if (opts.confidenceScorer) {
+    confidence = await opts.confidenceScorer(data, { prompt });
+    if (opts.minConfidence !== undefined && confidence < opts.minConfidence) {
+      throw new SchemaViolationError(
+        JSON.stringify(data),
+        `Confidence score ${confidence} is below minConfidence ${opts.minConfidence}`
+      );
+    }
+  }
+
+  if (opts.postProcessors) {
+    for (const postProcess of opts.postProcessors) {
+      data = await postProcess(data, confidence === undefined ? { prompt } : { prompt, confidence });
+    }
+  }
+
+  return confidence === undefined ? { data } : { data, confidence };
 }
