@@ -94,6 +94,31 @@ export interface ShapecraftModel {
  */
 export type JsonSchemaValidator = (value: unknown, schema: Record<string, unknown>) => void;
 
+/**
+ * Content/meaning check that runs after structural validation passes — e.g.
+ * "does this value actually appear in the source text" checks that no
+ * type/shape check can catch. Throw (sync or async) to fail the stage; the
+ * failure is wrapped in a `SchemaViolationError` so it retries exactly like a
+ * structural failure does.
+ */
+export type SemanticValidator<T = unknown> = (value: T, context: { prompt: string }) => void | Promise<void>;
+
+/**
+ * Assigns a 0-1 confidence score to an already-validated value. Purely
+ * informational unless `minConfidence` is also set, in which case a score
+ * below the threshold fails the stage (wrapped in `SchemaViolationError`,
+ * same retry treatment as structural/semantic failures).
+ */
+export type ConfidenceScorer<T = unknown> = (value: T, context: { prompt: string }) => number | Promise<number>;
+
+/**
+ * Transforms an already-validated value (e.g. normalization, trimming,
+ * enrichment). Runs last, in array order, after every validation/scoring
+ * stage has passed — a post-processor is never retried, it only reshapes a
+ * value that already satisfied the schema.
+ */
+export type PostProcessor<T = unknown> = (value: T, context: { prompt: string; confidence?: number }) => T | Promise<T>;
+
 export interface GenerateOptions {
   maxRetries?: number;
   systemPrompt?: string;
@@ -119,6 +144,18 @@ export interface GenerateOptions {
    * callers see no behavior change.
    */
   jsonSchemaValidator?: JsonSchemaValidator;
+  /** Optional stage after structural validation passes — see `SemanticValidator`. */
+  semanticValidator?: SemanticValidator<unknown>;
+  /** Optional stage after semantic validation passes — see `ConfidenceScorer`. */
+  confidenceScorer?: ConfidenceScorer<unknown>;
+  /**
+   * Minimum acceptable `confidenceScorer` score (0-1). Ignored if no
+   * `confidenceScorer` is set. A score below this fails the attempt and
+   * triggers a retry, same as a structural/semantic validation failure.
+   */
+  minConfidence?: number;
+  /** Optional final stage — see `PostProcessor`. Runs in array order. */
+  postProcessors?: PostProcessor<unknown>[];
 }
 
 /** Best-effort call metadata — always present, but only `provider`/`model`/
@@ -139,6 +176,8 @@ export interface GenerateResult<T> {
   guaranteeLevel: GuaranteeLevel;
   attempts: number;
   metadata: ResultMetadata;
+  /** Present only when a `confidenceScorer` was supplied — see `ConfidenceScorer`. */
+  confidence?: number;
 }
 
 /** One independent unit of work for `generateBatch()`/`client.generateBatch()`. */

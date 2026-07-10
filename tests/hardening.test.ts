@@ -346,3 +346,101 @@ describe("jsonSchemaValidator (pluggable)", () => {
     await expect(stream.result).rejects.toBeInstanceOf(MaxRetriesExceededError);
   });
 });
+
+// ─── 7.8 Staged validation pipeline ────────────────────────────────────────────
+
+describe("staged validation pipeline (semanticValidator / confidenceScorer / postProcessors)", () => {
+  const schema = z.object({ name: z.string() });
+
+  it("no optional stages configured: behavior is unchanged (regression)", async () => {
+    const model = mockModel({ name: "Alice" });
+    const result = await generate(model, schema, "x");
+    expect(result.data).toEqual({ name: "Alice" });
+    expect(result.confidence).toBeUndefined();
+  });
+
+  it("semanticValidator runs after structural validation passes, receives the parsed value and prompt", async () => {
+    const model = mockModel({ name: "Alice" });
+    let seen: unknown;
+    await generate(model, schema, "the prompt", {
+      semanticValidator: (value, ctx) => {
+        seen = { value, prompt: ctx.prompt };
+      },
+    });
+    expect(seen).toEqual({ value: { name: "Alice" }, prompt: "the prompt" });
+  });
+
+  it("a throwing semanticValidator fails the attempt like a structural failure and retries", async () => {
+    let calls = 0;
+    const model = mockModel({ name: "Alice" });
+    await expect(
+      generate(model, schema, "x", {
+        maxRetries: 2,
+        semanticValidator: () => {
+          calls++;
+          throw new Error("no supporting evidence in source");
+        },
+      })
+    ).rejects.toBeInstanceOf(MaxRetriesExceededError);
+    expect(calls).toBe(2);
+  });
+
+  it("confidenceScorer's score is exposed on the result", async () => {
+    const model = mockModel({ name: "Alice" });
+    const result = await generate(model, schema, "x", {
+      confidenceScorer: (value) => ((value as { name: string }).name === "Alice" ? 0.9 : 0.1),
+    });
+    expect(result.confidence).toBe(0.9);
+  });
+
+  it("minConfidence below the scored value fails the attempt and retries", async () => {
+    let calls = 0;
+    const model = mockModel({ name: "Alice" });
+    await expect(
+      generate(model, schema, "x", {
+        maxRetries: 2,
+        confidenceScorer: () => {
+          calls++;
+          return 0.2;
+        },
+        minConfidence: 0.5,
+      })
+    ).rejects.toBeInstanceOf(MaxRetriesExceededError);
+    expect(calls).toBe(2);
+  });
+
+  it("postProcessors run in array order after every validation/scoring stage passes", async () => {
+    const model = mockModel({ name: "alice" });
+    const result = await generate(model, schema, "x", {
+      postProcessors: [
+        (value) => ({ ...(value as { name: string }), name: (value as { name: string }).name.toUpperCase() }),
+        (value) => ({ ...(value as { name: string }), name: `${(value as { name: string }).name}!` }),
+      ],
+    });
+    expect(result.data).toEqual({ name: "ALICE!" });
+  });
+
+  it("postProcessors receive the confidence score from the previous stage", async () => {
+    const model = mockModel({ name: "Alice" });
+    let seenConfidence: number | undefined;
+    await generate(model, schema, "x", {
+      confidenceScorer: () => 0.75,
+      postProcessors: [
+        (value, ctx) => {
+          seenConfidence = ctx.confidence;
+          return value;
+        },
+      ],
+    });
+    expect(seenConfidence).toBe(0.75);
+  });
+
+  it("client-level defaults for the new stages apply, and a per-call option overrides them", async () => {
+    const model = mockModel({ name: "Alice" });
+    const client = createClient({ confidenceScorer: () => 0.4, minConfidence: 0.5 });
+    await expect(client.generate(model, schema, "x", { maxRetries: 1 })).rejects.toBeInstanceOf(MaxRetriesExceededError);
+
+    const result = await client.generate(model, schema, "x", { confidenceScorer: () => 0.9 });
+    expect(result.confidence).toBe(0.9);
+  });
+});
