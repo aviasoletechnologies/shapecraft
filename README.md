@@ -242,6 +242,26 @@ const local  = ollama({ model: "llama3.2" });
 const claude = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
 ```
 
+### Model Capabilities
+
+Every built-in backend also exposes `capabilities` — an explicit, inspectable alternative to duck-typing `typeof model.generateStream === "function"` for routing logic:
+
+```typescript
+console.log(claude.capabilities);
+// { streaming: true, chat: true, structuredOutput: true, toolCalling: false }
+```
+
+```typescript
+interface ModelCapabilities {
+  streaming: boolean;       // has generateStream()
+  chat: boolean;            // has chat() - required for turnaround: true
+  structuredOutput: boolean; // has generate() - always true
+  toolCalling: boolean;     // not yet supported by any backend
+}
+```
+
+`capabilities` is optional on `ShapecraftModel` — a custom model implementation that predates this field (or simply doesn't set it) still satisfies the interface unchanged, and `model.capabilities` is `undefined` for it. `chat?`/`generateStream?` remain the actual methods the core calls; `capabilities` is just a declared summary of the same information, not a replacement mechanism.
+
 ## Streaming
 
 `generateStream()` streams tokens live for UX, but validates the assembled response exactly once, through the same pipeline as `generate()` — streaming is purely a transport layer, not a different guarantee. Falls back to one-shot `generate()` for a model without streaming support.
@@ -327,6 +347,37 @@ const cachingMiddleware: Middleware = async (ctx, next) => {
 ```
 
 `createClient()` is purely additive — existing direct calls to `generate()`/`generateStream()` are unaffected. Middleware wraps `generate()` only; `generateStream()` picks up the client's `retry`/`timeoutMs`/`jsonSchemaValidator` defaults but isn't intercepted by middleware (its async-iterable shape doesn't fit the simple before/after `next()` model).
+
+## Batch Generation
+
+Run multiple independent prompts (each with its own model/schema/options) in parallel, capped at `concurrency` in flight at once:
+
+```typescript
+import { generateBatch } from "@aviasole/shapecraft";
+
+const results = await generateBatch(
+  [
+    { model, schema, prompt: "Extract: Jane Doe, 28" },
+    { model, schema, prompt: "Extract: John Smith, 41" },
+    { model, schema, prompt: "Extract: Ada Lovelace, 36" },
+  ],
+  { concurrency: 2 } // omit to run every item concurrently, uncapped
+);
+
+for (const r of results) {
+  if (r.status === "fulfilled") console.log(r.value.data);
+  else console.error("failed:", r.reason);
+}
+```
+
+Each item settles independently - `Promise.allSettled`-style, never `Promise.all`-style - so one bad prompt doesn't lose the results of the rest of the batch. Order is preserved: `results[i]` always corresponds to the item at `items[i]`, regardless of which finishes first.
+
+Available through `createClient()` too, so each item gets the client's middleware/retry/timeout/validator defaults, same as calling `client.generate()` on it individually:
+
+```typescript
+const client = createClient({ retry: { max: 3 } });
+const results = await client.generateBatch(items, { concurrency: 5 });
+```
 
 ## Result Metadata
 
