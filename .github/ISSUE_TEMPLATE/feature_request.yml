@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose something shapecraft doesn't do yet
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you running into
+      description: The gap in current behavior, not the solution yet - what are you unable to do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API (if you have one in mind)
+      description: A sketch of what calling it would look like. Doesn't need to be final.
+      render: typescript
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you're doing today instead
+      description: Workaround, other library, hand-rolled code - helps gauge how painful the gap actually is.
+    validations:
+      required: false

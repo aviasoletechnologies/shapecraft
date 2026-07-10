@@ -6,3 +6,5 @@ dist/
 *.md
 !README.md
 !CHANGELOG.md
+!CONTRIBUTING.md
+!.github/**/*.md
