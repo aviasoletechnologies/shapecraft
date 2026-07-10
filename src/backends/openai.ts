@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
+import type { ChatMessage, ModelCallOptions, SchemaInput, ShapecraftModel } from "../types.js";
 import { toJsonSchema, buildStructuredPrompt } from "../core/schema.js";
 import { isZodSchema } from "../core/validate.js";
 import { parseAndValidate } from "../core/parse.js";
@@ -43,19 +43,23 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
   return {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
 
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {
+    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const openaiClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const response = await openaiClient.chat.completions.create({
-        model: modelId,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: responseFormatFor(schema),
-      });
+      const response = await openaiClient.chat.completions.create(
+        {
+          model: modelId,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          response_format: responseFormatFor(schema),
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       const raw: string = response.choices[0]?.message?.content ?? "";
 
@@ -76,19 +80,27 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
       return response.choices[0]?.message?.content ?? "";
     },
 
-    async *generateStream<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string> {
+    async *generateStream<T>(
+      prompt: string,
+      schema: SchemaInput<T>,
+      systemPrompt?: string,
+      callOptions?: ModelCallOptions
+    ): AsyncIterable<string> {
       const openaiClient = await client();
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);
 
-      const stream = await openaiClient.chat.completions.create({
-        model: modelId,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        response_format: responseFormatFor(schema),
-        stream: true,
-      });
+      const stream = await openaiClient.chat.completions.create(
+        {
+          model: modelId,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          response_format: responseFormatFor(schema),
+          stream: true,
+        },
+        callOptions?.signal ? { signal: callOptions.signal } : undefined
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for await (const chunk of stream as AsyncIterable<any>) {

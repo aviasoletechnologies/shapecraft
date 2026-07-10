@@ -36,10 +36,41 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * Extra per-call knobs a backend MAY read. Passed as an additional, optional
+ * argument — a backend that doesn't declare this parameter at all still
+ * satisfies `ShapecraftModel` (TypeScript allows implementing fewer params
+ * than an interface declares) and behaves exactly as it did before this
+ * existed. Backends that DO read `signal` get real request cancellation;
+ * everything else still gets the core-level timeout/abort guarantee (the
+ * retry loop stops waiting) even if the underlying call keeps running.
+ */
+export interface ModelCallOptions {
+  signal?: AbortSignal;
+}
+
+/**
+ * Explicit, inspectable feature flags for a model — an alternative to
+ * duck-typing `typeof model.chat === "function"` / `typeof model.generateStream
+ * === "function"` for routing logic. Optional so any pre-existing custom
+ * `ShapecraftModel` implementation (which predates this field) still
+ * satisfies the interface unchanged; the 4 built-in backends always populate
+ * it. `chat?`/`generateStream?` themselves are untouched and still the
+ * source of truth the core actually calls — `capabilities` is a declared
+ * summary of the same information, not a replacement mechanism.
+ */
+export interface ModelCapabilities {
+  streaming: boolean;
+  chat: boolean;
+  structuredOutput: boolean;
+  toolCalling: boolean;
+}
+
 export interface ShapecraftModel {
   id: string;
   guaranteeLevel: GuaranteeLevel;
-  generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T>;
+  capabilities?: ModelCapabilities;
+  generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T>;
   /**
    * Plain, unconstrained conversational turn (no schema/JSON mode imposed).
    * Required for `turnaround: true` — models without it throw when used that way.
@@ -51,19 +82,83 @@ export interface ShapecraftModel {
    * buffer through the same pipeline as non-streaming `generate()`.
    * Absence ⇒ the core falls back to one-shot `generate()`.
    */
-  generateStream?<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): AsyncIterable<string>;
+  generateStream?<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): AsyncIterable<string>;
 }
+
+/**
+ * Pluggable JSON Schema structural validator (used only for `{ jsonSchema }`
+ * inputs). Receives the same `(value, schema)` shape the built-in
+ * `checkJsonSchema` does and must throw on failure. Omit to keep today's
+ * built-in shallow validator — passing this option is the only way its
+ * behavior changes.
+ */
+export type JsonSchemaValidator = (value: unknown, schema: Record<string, unknown>) => void;
 
 export interface GenerateOptions {
   maxRetries?: number;
   systemPrompt?: string;
   temperature?: number;
+  /**
+   * Abort the in-flight call. Always enforced at the core level — the retry
+   * loop stops waiting the instant it fires — regardless of whether the
+   * backend itself reads `signal`. A backend that does gets the underlying
+   * network request actually cancelled, not just abandoned.
+   */
+  signal?: AbortSignal;
+  /**
+   * Milliseconds before a single attempt is abandoned with a `TimeoutError`.
+   * Enforced with the same core-level guarantee as `signal` above: generate()
+   * never waits longer than this for one attempt, even against a backend
+   * that ignores the passed-through signal.
+   */
+  timeoutMs?: number;
+  /**
+   * Override the built-in `{ jsonSchema }` structural check (e.g. swap in
+   * AJV for `oneOf`/`format`/`pattern` support `checkJsonSchema` doesn't
+   * have). Defaults to the bundled shallow validator when omitted — existing
+   * callers see no behavior change.
+   */
+  jsonSchemaValidator?: JsonSchemaValidator;
+}
+
+/** Best-effort call metadata — always present, but only `provider`/`model`/
+ * `latencyMs` are guaranteed populated by the core today; the rest stay
+ * `undefined` until a backend opts in to supplying them. */
+export interface ResultMetadata {
+  provider: string;
+  model: string;
+  latencyMs: number;
+  tokens?: { input: number; output: number };
+  finishReason?: string;
+  requestId?: string;
+  cost?: number;
 }
 
 export interface GenerateResult<T> {
   data: T;
   guaranteeLevel: GuaranteeLevel;
   attempts: number;
+  metadata: ResultMetadata;
+}
+
+/** One independent unit of work for `generateBatch()`/`client.generateBatch()`. */
+export interface BatchItem<T = unknown> {
+  model: ShapecraftModel;
+  schema: SchemaInput<T>;
+  prompt: string;
+  options?: GenerateOptions;
+}
+
+/**
+ * Settled outcome for one `BatchItem` — mirrors `Promise.allSettled`'s shape
+ * rather than throwing, so one failing item never loses the results of the
+ * rest of the batch.
+ */
+export type BatchResult<T> = { status: "fulfilled"; value: GenerateResult<T> } | { status: "rejected"; reason: unknown };
+
+export interface GenerateBatchOptions {
+  /** Max number of items in flight at once. Omit (or <= 0) to run every item concurrently, uncapped. */
+  concurrency?: number;
 }
 
 export class SchemaViolationError extends Error {
@@ -87,6 +182,19 @@ export class MaxTurnsExceededError extends Error {
   constructor(public readonly turns: number) {
     super(`Conversation did not complete after ${turns} turns`);
     this.name = "MaxTurnsExceededError";
+  }
+}
+
+/**
+ * A single attempt exceeded `timeoutMs`, or was cancelled via `signal`. NOT a
+ * SchemaViolationError, so generate()'s retry loop does not swallow it — it
+ * propagates to the caller immediately instead of silently retrying, since a
+ * hung/slow backend retrying just as slowly rarely self-heals.
+ */
+export class TimeoutError extends Error {
+  constructor(public readonly timeoutMs: number) {
+    super(`Generation timed out after ${timeoutMs}ms`);
+    this.name = "TimeoutError";
   }
 }
 
