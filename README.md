@@ -6,6 +6,8 @@ Structured output generation for LLMs in Node.js. Token-level constraints for lo
 [![CI](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml/badge.svg)](https://github.com/aviasoletechnologies/shapecraft/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+![shapecraft demo](assets/demo.gif)
+
 ## Install
 
 ```bash
@@ -261,6 +263,22 @@ interface ModelCapabilities {
 ```
 
 `capabilities` is optional on `ShapecraftModel` — a custom model implementation that predates this field (or simply doesn't set it) still satisfies the interface unchanged, and `model.capabilities` is `undefined` for it. `chat?`/`generateStream?` remain the actual methods the core calls; `capabilities` is just a declared summary of the same information, not a replacement mechanism.
+
+## How shapecraft compares
+
+Other libraries solve overlapping parts of this problem well. This is what's actually different, not a scorecard:
+
+| Capability | Instructor-js | zod-gpt | Vercel AI SDK (`generateObject`) | shapecraft |
+|---|---|---|---|---|
+| Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Anthropic, Ollama |
+| Local model support | - | - | no grammar-level constraint | Ollama with token-level GBNF grammar |
+| Per-provider reliability signal | - | - | - | `guaranteeLevel`: `native` / `constrained` / `best-effort` |
+| Retry on schema failure | not documented | fixed 3 attempts, 60s timeout | configurable `maxRetries` | configurable, only on schema-validation failure |
+| Timeout / cancellation | not documented | hardcoded 60s | via provider fetch options | `timeoutMs` / `AbortSignal`, enforced at the core regardless of backend |
+| Streaming | yes | - | yes (`streamObject`) | yes, with per-field incremental validation |
+| Schema input types | Zod only | Zod only | Zod, Valibot, JSON schema | Zod, JSON schema, regex, custom validator, XML |
+
+The gap that actually matters: none of the others tell you *how much* to trust a given provider's structured output, or give local models the same real enforcement cloud providers get. shapecraft's `guaranteeLevel` makes that explicit instead of leaving it as something you find out in production.
 
 ## Streaming
 
