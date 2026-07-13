@@ -74,7 +74,16 @@ export interface ModelCapabilities {
   streaming: boolean;
   chat: boolean;
   structuredOutput: boolean;
+  /** Native provider function-calling (OpenAI/Anthropic-style `tools`). Not yet built by any backend. */
   toolCalling: boolean;
+  /**
+   * Skill-based dispatch via `generateSkillCall()`/`runSkillLoop()` — built entirely
+   * on `generate()` (a Zod discriminated union over registered skills), not on a
+   * provider's native tool-calling API. Always true: every `ShapecraftModel` has
+   * `generate()`, so every backend trivially supports it, same posture as
+   * `structuredOutput` below.
+   */
+  skillDispatch: boolean;
 }
 
 export interface ShapecraftModel {
@@ -248,6 +257,38 @@ export class TimeoutError extends Error {
   }
 }
 
+/**
+ * A skill's own `handler` threw. Deliberately NOT a `SchemaViolationError` — the
+ * dispatch (`{ skill, args }`) was structurally valid, the handler's own logic
+ * failed. Never retried by anything in `generate()`'s pipeline, same non-retry
+ * posture as `TimeoutError`: retrying a failing handler with the same args rarely
+ * self-heals.
+ */
+export class SkillExecutionError extends Error {
+  constructor(
+    public readonly skill: string,
+    public readonly cause: unknown
+  ) {
+    super(`Skill "${skill}" handler threw`);
+    this.name = "SkillExecutionError";
+  }
+}
+
+/**
+ * `runSkillLoop()` hit `maxTurns` without a terminal skill running. Carries the
+ * loop's `memory` so far, so a caller can persist it and call `runSkillLoop()`
+ * again with a fresh `maxTurns` budget to continue instead of starting over.
+ */
+export class MaxSkillTurnsExceededError extends Error {
+  constructor(
+    public readonly turns: number,
+    public readonly memory: SkillLoopMemory
+  ) {
+    super(`Skill loop did not complete after ${turns} turns`);
+    this.name = "MaxSkillTurnsExceededError";
+  }
+}
+
 /** Persisted, JSON-serializable conversation state for `turnaround` mode. */
 export interface ConversationMemory {
   messages: ChatMessage[];
@@ -266,6 +307,45 @@ export interface TurnaroundOptions {
 export type TurnResult<T> =
   | { status: "collecting"; message: string; memory: ConversationMemory }
   | { status: "complete"; data: T; memory: ConversationMemory };
+
+/**
+ * A named, callable operation the model can choose via `generateSkillCall()`. The
+ * dispatch schema `generateSkillCall()` builds is a `z.discriminatedUnion` over every
+ * registered skill's `inputSchema` — v1 is deliberately Zod-only, since that's the
+ * mechanism that makes dispatch work with zero new validation code (see
+ * `skill-based-generation-plan.md` §2/§10).
+ */
+export interface Skill<TInput = unknown, TOutput = unknown> {
+  name: string;
+  /** Injected into the dispatch system prompt alongside the arg shape, so the model has more than the shape to pick from. */
+  description?: string;
+  inputSchema: z.ZodType<TInput>;
+  handler: (args: TInput) => TOutput | Promise<TOutput>;
+  /** Running this skill ends `runSkillLoop()` — its result becomes the loop's final answer. */
+  terminal?: boolean;
+}
+
+/** What `generateSkillCall()` returns: which skill, and its (already-validated) arguments. */
+export interface SkillCall<TArgs = unknown> {
+  skill: string;
+  args: TArgs;
+}
+
+export type SkillTurn = { call: SkillCall } & ({ result: unknown } | { error: unknown });
+
+/** Persisted, JSON-serializable `runSkillLoop()` state — mirrors `ConversationMemory`. */
+export interface SkillLoopMemory {
+  turns: SkillTurn[];
+  status: "running" | "complete";
+  turnCount: number;
+}
+
+export interface RunSkillLoopOptions extends GenerateOptions {
+  /** Loop guard — throws MaxSkillTurnsExceededError beyond this many turns. Default 20. */
+  maxTurns?: number;
+  /** Omit on the first call; thread a caught `MaxSkillTurnsExceededError.memory` back in to continue a loop that hit its turn budget. */
+  memory?: SkillLoopMemory;
+}
 
 export type StreamEvent<T> =
   | { type: "attempt-start"; attempt: number }

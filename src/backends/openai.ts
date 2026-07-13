@@ -46,7 +46,7 @@ export function openai(options: OpenAIBackendOptions = {}): ShapecraftModel {
   return {
     id: `openai:${modelId}`,
     guaranteeLevel: "native",
-    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false, skillDispatch: true },
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const openaiClient = await client();

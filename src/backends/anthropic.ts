@@ -23,7 +23,7 @@ export function anthropic(options: AnthropicBackendOptions = {}): ShapecraftMode
   return {
     id: `anthropic:${modelId}`,
     guaranteeLevel: "best-effort",
-    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false, skillDispatch: true },
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const anthropicClient = await client();
