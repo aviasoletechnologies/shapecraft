@@ -17,6 +17,25 @@
   "json_schema", ... }` is server-side enforced, same tier as `openai()`/`groq()`/
   `fireworks()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same
   as `openai()`/`groq()`.
+- **`openRouter()` backend** - same `openai`-package-pointed-at-a-different-base-URL
+  approach as `fireworks()`/`mistral()`. `guaranteeLevel: "best-effort"`, deliberately
+  not `"native"` like the other cloud backends - OpenRouter is pass-through across many
+  different underlying providers/models, and `response_format: { type: "json_schema" }`
+  enforcement isn't guaranteed for every model it can route to. Defensively requests
+  `extractJson: true` on every call for the same reason `anthropic()` needs it. No
+  grammar mode - a `{ gbnf }` input is prompt-only, best-effort.
+
+### Fixed
+
+- **`toJsonSchema()` emitted the legacy OpenAPI 3.0 boolean form for exclusive bounds**
+  (`.positive()`/`.negative()`/`.gt()`/`.lt()`) - `exclusiveMinimum: true` + a separate
+  `minimum`, instead of the numeric form real JSON Schema requires (`exclusiveMinimum: 0`).
+  Backends that validate the schema itself strictly (confirmed on Mistral, which rejected
+  it outright with a 422) reject the boolean form before the model ever runs. Switched
+  `zodToJsonSchema`'s target from `openApi3` to `jsonSchema7` (stripping the extraneous
+  `$schema` key it adds). Affects every backend's Zod-schema handling, not just Mistral -
+  verified live against `groq()`, `anthropic()`, and `ollama()` with the schema that broke
+  Mistral.
 
 ## [2.4.0] - 2026-07-17
 

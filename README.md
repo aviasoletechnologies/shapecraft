@@ -318,6 +318,7 @@ conforming string can still be a wrong answer (see
 | `ollama()` | `constrained` | Token-level JSON-schema constraint |
 | `llamaCpp()` | `constrained` | Token-level GBNF grammar (local `.gguf` via node-llama-cpp) |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
+| `openRouter()` | `best-effort` | Pass-through to many providers - `response_format` support varies by underlying model |
 
 > `llamaCpp()` is `constrained` for a `{ gbnf }` input (token-level). For other schema
 > types (Zod / jsonSchema / …) it currently runs a best-effort prompt path until the
@@ -328,14 +329,20 @@ conforming string can still be a wrong answer (see
 > applies the GBNF grammar as a genuine token-level constraint server-side, the same
 > guarantee `llamaCpp()` gives locally. It reuses the `openai` package pointed at
 > Fireworks' base URL, so no extra SDK dependency is needed.
+>
+> `openRouter()` is deliberately `best-effort`, not `native` like the other cloud
+> backends — it's pass-through across many different underlying providers/models, and
+> `response_format: { type: "json_schema" }` enforcement isn't guaranteed for every model
+> it can route to, only the ones that actually support it themselves.
 
 ```typescript
-import { openai, groq, fireworks, mistral, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
+import { openai, groq, fireworks, mistral, openRouter, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
 
 const gpt       = openai({ model: "gpt-4o-mini" });
 const fast      = groq({ model: "llama-3.3-70b-versatile" });
 const cloudGbnf = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" });
 const mist      = mistral({ model: "mistral-large-latest" });
+const router    = openRouter({ model: "openai/gpt-4o-mini" });
 const local     = ollama({ model: "llama3.2" });
 const native    = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
 const claude    = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
