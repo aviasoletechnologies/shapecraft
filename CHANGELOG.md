@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.5.0] - 2026-07-15
+
+### Added
+
+- **`fireworks()` backend** - Fireworks AI, reached via the `openai` package pointed at
+  Fireworks' base URL (no new SDK dependency). `guaranteeLevel: "native"` - JSON/Zod
+  schemas use Fireworks' server-side JSON schema mode, same tier as `openai()`/`groq()`.
+  - The differentiator: a `{ gbnf }` input gets Fireworks' own grammar mode
+    (`response_format: { type: "grammar", grammar }`), a genuine token-level constraint
+    applied server-side - not the prompted-and-checked best-effort path every other cloud
+    backend falls back to for gbnf. It's the same real guarantee `llamaCpp()` gives
+    locally, just without needing a local `.gguf` file.
+
 ## [2.4.0] - 2026-07-17
 
 ### Added
