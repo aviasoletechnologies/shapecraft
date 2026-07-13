@@ -314,6 +314,7 @@ conforming string can still be a wrong answer (see
 | `openai()` | `native` | Server-side strict JSON schema |
 | `groq()` | `native` | JSON mode |
 | `fireworks()` | `native` | Server-side JSON schema mode, plus a real token-level GBNF grammar mode |
+| `mistral()` | `native` | Server-side JSON schema mode |
 | `ollama()` | `constrained` | Token-level JSON-schema constraint |
 | `llamaCpp()` | `constrained` | Token-level GBNF grammar (local `.gguf` via node-llama-cpp) |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
@@ -329,14 +330,15 @@ conforming string can still be a wrong answer (see
 > Fireworks' base URL, so no extra SDK dependency is needed.
 
 ```typescript
-import { openai, groq, fireworks, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
+import { openai, groq, fireworks, mistral, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
 
-const gpt      = openai({ model: "gpt-4o-mini" });
-const fast     = groq({ model: "llama-3.3-70b-versatile" });
+const gpt       = openai({ model: "gpt-4o-mini" });
+const fast      = groq({ model: "llama-3.3-70b-versatile" });
 const cloudGbnf = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" });
-const local    = ollama({ model: "llama3.2" });
-const native   = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
-const claude   = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
+const mist      = mistral({ model: "mistral-large-latest" });
+const local     = ollama({ model: "llama3.2" });
+const native    = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
+const claude    = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
 ```
 
 ### Model Capabilities

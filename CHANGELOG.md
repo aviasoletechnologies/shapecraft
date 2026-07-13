@@ -12,6 +12,11 @@
     applied server-side - not the prompted-and-checked best-effort path every other cloud
     backend falls back to for gbnf. It's the same real guarantee `llamaCpp()` gives
     locally, just without needing a local `.gguf` file.
+- **`mistral()` backend** - Mistral AI, same `openai`-package-pointed-at-a-different-base-URL
+  approach as `fireworks()`. `guaranteeLevel: "native"` - `response_format: { type:
+  "json_schema", ... }` is server-side enforced, same tier as `openai()`/`groq()`/
+  `fireworks()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same
+  as `openai()`/`groq()`.
 
 ## [2.4.0] - 2026-07-17
 
