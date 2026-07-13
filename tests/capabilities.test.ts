@@ -6,6 +6,7 @@ import { groq } from "../src/backends/groq.js";
 import { anthropic } from "../src/backends/anthropic.js";
 import { ollama } from "../src/backends/ollama.js";
 import { fireworks } from "../src/backends/fireworks.js";
+import { mistral } from "../src/backends/mistral.js";
 import { mockModel } from "./helpers/index.js";
 
 const PersonSchema = z.object({ name: z.string(), age: z.number() });
@@ -17,6 +18,7 @@ describe("ShapecraftModel.capabilities", () => {
     ["anthropic", anthropic({ model: "claude-haiku-4-5-20251001" })],
     ["ollama", ollama({ model: "llama3.2" })],
     ["fireworks", fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" })],
+    ["mistral", mistral({ model: "mistral-large-latest" })],
   ])("%s exposes streaming/chat/structuredOutput/skillDispatch true, toolCalling false", (_name, model) => {
     expect(model.capabilities).toEqual({
       streaming: true,
@@ -33,6 +35,7 @@ describe("ShapecraftModel.capabilities", () => {
     ["anthropic", anthropic({ model: "claude-haiku-4-5-20251001" })],
     ["ollama", ollama({ model: "llama3.2" })],
     ["fireworks", fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" })],
+    ["mistral", mistral({ model: "mistral-large-latest" })],
   ])("%s's declared capabilities match its actual duck-typed method presence", (_name, model) => {
     expect(model.capabilities?.streaming).toBe(typeof model.generateStream === "function");
     expect(model.capabilities?.chat).toBe(typeof model.chat === "function");
@@ -45,4 +48,23 @@ describe("ShapecraftModel.capabilities", () => {
     const result = await generate(legacy, PersonSchema, "get person");
     expect(result.data).toEqual({ name: "Alice", age: 30 });
   });
+});
+
+const hasMistral = !!process.env.MISTRAL_API_KEY;
+
+// Regression guard: caught live while dogfood-testing mistral() - despite
+// response_format: { type: "json_schema" } supposedly enforcing raw JSON,
+// mistral-large-latest sometimes wraps the output in a ```json fence anyway.
+// Without extractJson: true in mistral.ts's generate(), that fails JSON.parse
+// outright and burns all 3 retries before MaxRetriesExceededError.
+describe("Mistral backend (real API)", () => {
+  it.skipIf(!hasMistral)("survives a markdown-fence-wrapped json_schema response", async () => {
+    const model = mistral({ model: "mistral-large-latest" });
+    const result = await generate(
+      model,
+      z.object({ name: z.string(), age: z.number(), email: z.string() }),
+      "Jane Doe is 34 years old, email jane.doe@example.com"
+    );
+    expect(result.data).toEqual({ name: "Jane Doe", age: 34, email: "jane.doe@example.com" });
+  }, 30_000);
 });

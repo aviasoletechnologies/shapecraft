@@ -7,8 +7,16 @@ import { isXmlInput, isGbnfInput, isZodSchema } from "./validate.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function toJsonSchema(schema: z.ZodType<any>): Record<string, unknown> {
+  // jsonSchema7 (the default target), not openApi3 - openApi3 emits the old OpenAPI
+  // 3.0 boolean form for exclusive bounds (`.positive()`/`.negative()`/`.gt()`/`.lt()`)
+  // - exclusiveMinimum: true + a separate minimum - instead of the numeric form real
+  // JSON Schema requires (exclusiveMinimum: 0). Backends that validate the schema
+  // itself strictly (confirmed on Mistral, likely Fireworks too) reject the boolean
+  // form outright with a 422 before the model ever runs.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return zodToJsonSchema(schema as any, { target: "openApi3" }) as Record<string, unknown>;
+  const result = zodToJsonSchema(schema as any, { target: "jsonSchema7" }) as Record<string, unknown>;
+  delete result.$schema;
+  return result;
 }
 
 export function buildStructuredPrompt(
