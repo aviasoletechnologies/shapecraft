@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0] - 2026-07-10
+
+### Added
+
+- FHIR R4 preset schemas via `@aviasole/shapecraft/fhir` entrypoint - Patient, Observation,
+  Condition, MedicationRequest, Encounter. Each is a ready-to-use `SchemaInput` with a typed
+  result interface, so it works with `generate()`/`generateStream()` unchanged.
+
 ## [2.0.4] - 2026-07-10
 
 ### Added
