@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.0.4] - 2026-07-10
+
+### Added
+
+- **Staged validation pipeline** - `generate()`'s validation step is now
+  `parse → structural validation → semantic validation → confidence scoring →
+  post-processors → return`. Structural validation (`validateOutput`) is
+  unchanged and remains the only required stage; the three new stages are
+  opt-in via `GenerateOptions` (also settable as `createClient()` defaults,
+  same override pattern as `jsonSchemaValidator`):
+  - `semanticValidator(value, { prompt })` - a content/meaning check that runs
+    after structural validation passes. Throw to fail; the failure is wrapped
+    in `SchemaViolationError` so it retries exactly like a structural failure.
+  - `confidenceScorer(value, { prompt })` - returns a 0-1 score, exposed as
+    `GenerateResult.confidence`. Purely informational unless `minConfidence`
+    is also set, in which case a score below the threshold fails the attempt
+    and retries.
+  - `postProcessors: PostProcessor[]` - run last, in array order, reshaping
+    an already-validated value (normalization, enrichment, etc). Never
+    retried - only runs once every check has already passed.
+
+  Wired into `generate()` only; `generateStream()`'s per-field incremental
+  validation is untouched (deferred to the streaming parser refactor).
+
 ## [2.0.3] - 2026-07-06
 
 ### Added
@@ -70,9 +94,6 @@
   streaming-parser-refactor item in PLAN-Updated.md). `turnaround` calls are also
   out of scope for the client wrapper in v1 — use top-level
   `generate(..., { turnaround: true })`.
-- This branch (`architecture-hardening`) was cut from `main` at the stream-support
-  merge point, independent of the (still unmerged) fhir-support/gbnf-support
-  branches — those lineages will need reconciling on merge.
 
 ## [2.0.1] - 2026-07-04
 
