@@ -24,6 +24,15 @@
   enforcement isn't guaranteed for every model it can route to. Defensively requests
   `extractJson: true` on every call for the same reason `anthropic()` needs it. No
   grammar mode - a `{ gbnf }` input is prompt-only, best-effort.
+- **`gemini()` backend** - Google Gemini, via the official `@google/genai` SDK rather
+  than `openai`-pointed-at-a-different-base-URL - Gemini's OpenAI-compatible endpoint is
+  a migration bridge for OpenAI users, not its primary integration path, and doesn't
+  expose `responseJsonSchema` (plain JSON Schema, what `toJsonSchema()` already produces)
+  - only the older `responseSchema` (Gemini's own Type-enum OpenAPI-subset shape).
+  `guaranteeLevel: "native"` - `responseJsonSchema`/`responseMimeType: "application/json"`
+  is server-side constrained decoding, same tier as `openai()`/`groq()`/`fireworks()`/
+  `mistral()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same as
+  every other backend without one.
 
 ### Fixed
 

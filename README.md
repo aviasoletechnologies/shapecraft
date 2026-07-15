@@ -17,9 +17,10 @@ npm install @aviasole/shapecraft zod
 Install backend SDK as needed:
 
 ```bash
-npm install openai              # OpenAI
+npm install openai              # OpenAI, Fireworks, Mistral, OpenRouter (all OpenAI-compatible)
 npm install groq-sdk            # Groq
 npm install @anthropic-ai/sdk   # Anthropic
+npm install @google/genai       # Gemini
 # Ollama: no extra SDK needed
 ```
 
@@ -315,6 +316,7 @@ conforming string can still be a wrong answer (see
 | `groq()` | `native` | JSON mode |
 | `fireworks()` | `native` | Server-side JSON schema mode, plus a real token-level GBNF grammar mode |
 | `mistral()` | `native` | Server-side JSON schema mode |
+| `gemini()` | `native` | Server-side JSON schema mode (`responseJsonSchema`) |
 | `ollama()` | `constrained` | Token-level JSON-schema constraint |
 | `llamaCpp()` | `constrained` | Token-level GBNF grammar (local `.gguf` via node-llama-cpp) |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
@@ -334,14 +336,21 @@ conforming string can still be a wrong answer (see
 > backends — it's pass-through across many different underlying providers/models, and
 > `response_format: { type: "json_schema" }` enforcement isn't guaranteed for every model
 > it can route to, only the ones that actually support it themselves.
+>
+> `gemini()` uses the official `@google/genai` SDK, not an OpenAI-compatible endpoint
+> (unlike `fireworks()`/`mistral()`/`openRouter()`) — Gemini's OpenAI-compat layer is a
+> migration bridge for OpenAI users, not its primary integration path, and doesn't expose
+> `responseJsonSchema` (plain JSON Schema, what `toJsonSchema()` already produces) —
+> only the older `responseSchema` (Gemini's own Type-enum OpenAPI-subset shape).
 
 ```typescript
-import { openai, groq, fireworks, mistral, openRouter, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
+import { openai, groq, fireworks, mistral, gemini, openRouter, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
 
 const gpt       = openai({ model: "gpt-4o-mini" });
 const fast      = groq({ model: "llama-3.3-70b-versatile" });
 const cloudGbnf = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" });
 const mist      = mistral({ model: "mistral-large-latest" });
+const gem       = gemini({ model: "gemini-flash-latest" });
 const router    = openRouter({ model: "openai/gpt-4o-mini" });
 const local     = ollama({ model: "llama3.2" });
 const native    = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
