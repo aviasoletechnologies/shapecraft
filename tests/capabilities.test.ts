@@ -8,6 +8,7 @@ import { ollama } from "../src/backends/ollama.js";
 import { fireworks } from "../src/backends/fireworks.js";
 import { mistral } from "../src/backends/mistral.js";
 import { openRouter } from "../src/backends/openRouter.js";
+import { gemini } from "../src/backends/gemini.js";
 import { mockModel } from "./helpers/index.js";
 
 const PersonSchema = z.object({ name: z.string(), age: z.number() });
@@ -21,6 +22,7 @@ describe("ShapecraftModel.capabilities", () => {
     ["fireworks", fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" })],
     ["mistral", mistral({ model: "mistral-large-latest" })],
     ["openRouter", openRouter({ model: "openai/gpt-4o-mini" })],
+    ["gemini", gemini({ model: "gemini-flash-latest" })],
   ])("%s exposes streaming/chat/structuredOutput/skillDispatch true, toolCalling false", (_name, model) => {
     expect(model.capabilities).toEqual({
       streaming: true,
@@ -39,6 +41,7 @@ describe("ShapecraftModel.capabilities", () => {
     ["fireworks", fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" })],
     ["mistral", mistral({ model: "mistral-large-latest" })],
     ["openRouter", openRouter({ model: "openai/gpt-4o-mini" })],
+    ["gemini", gemini({ model: "gemini-flash-latest" })],
   ])("%s's declared capabilities match its actual duck-typed method presence", (_name, model) => {
     expect(model.capabilities?.streaming).toBe(typeof model.generateStream === "function");
     expect(model.capabilities?.chat).toBe(typeof model.chat === "function");
@@ -46,6 +49,10 @@ describe("ShapecraftModel.capabilities", () => {
 
   it("openRouter() reports best-effort, not native - pass-through across many underlying models means json_schema enforcement isn't guaranteed for all of them", () => {
     expect(openRouter({ model: "openai/gpt-4o-mini" }).guaranteeLevel).toBe("best-effort");
+  });
+
+  it("gemini() reports native - responseSchema/responseJsonSchema is server-side constrained decoding, same tier as openai()/groq()", () => {
+    expect(gemini({ model: "gemini-flash-latest" }).guaranteeLevel).toBe("native");
   });
 
   it("is optional — a pre-existing custom ShapecraftModel without capabilities still satisfies the interface and works", async () => {
