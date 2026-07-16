@@ -1,14 +1,14 @@
 import { z } from "zod";
 import type { JsonSchemaValidator, SchemaInput } from "../../types.js";
-import { checkJsonSchema, isXmlInput, isZodSchema } from "../validate.js";
+import { checkJsonSchema, isXmlInput, isGbnfInput, isZodSchema } from "../validate.js";
 
 /**
  * Validator stage (incremental half): validates one field's value against
  * its own sub-schema, if the root schema decomposes into named fields (Zod
  * object, or jsonSchema with `properties`). Returns an error message on
  * failure, or null if the field passed (or there's no sub-schema for it / for
- * this schema type at all - XML, pattern, and custom-validator schemas never
- * decompose). The final whole-buffer check reuses the shared
+ * this schema type at all - XML, GBNF, pattern, and custom-validator schemas
+ * never decompose). The final whole-buffer check reuses the shared
  * `parseAndValidate()` in `../parse.js` - that stage applies once per
  * attempt, this one applies once per completed field.
  */
@@ -18,7 +18,7 @@ export function validateFieldIfPossible<T>(
   value: unknown,
   opts: { jsonSchemaValidator?: JsonSchemaValidator | undefined } = {}
 ): string | null {
-  if (isXmlInput(schema)) return null;
+  if (isXmlInput(schema) || isGbnfInput(schema)) return null;
 
   if (isZodSchema(schema)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

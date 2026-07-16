@@ -1,7 +1,16 @@
 import { z } from "zod";
-import type { ConfidenceScorer, JsonSchemaValidator, PostProcessor, SchemaInput, SemanticValidator, XmlInput } from "../types.js";
+import type {
+  ConfidenceScorer,
+  GbnfInput,
+  JsonSchemaValidator,
+  PostProcessor,
+  SchemaInput,
+  SemanticValidator,
+  XmlInput,
+} from "../types.js";
 import { SchemaViolationError } from "../types.js";
 import { finalizeXmlOutput, isNonEmpty } from "./xml.js";
+import { matchesGbnf } from "./gbnf.js";
 
 // Duck-typed rather than `instanceof z.ZodType`: a `file:`-linked or
 // nested-install consumer can end up with a different zod module instance
@@ -21,6 +30,10 @@ export function isZodSchema(schema: SchemaInput): schema is z.ZodType<any> {
 
 export function isXmlInput(schema: SchemaInput): schema is XmlInput {
   return typeof schema === "object" && schema !== null && "xml" in schema;
+}
+
+export function isGbnfInput(schema: SchemaInput): schema is GbnfInput {
+  return typeof schema === "object" && schema !== null && "gbnf" in schema;
 }
 
 function nullToUndefined(value: unknown): unknown {
@@ -102,6 +115,17 @@ export function validateOutput<T>(
       throw new SchemaViolationError(str, `Output does not match pattern ${schema.pattern}`);
     }
     return output as T;
+  }
+
+  if (isGbnfInput(schema)) {
+    // GBNF output is always a raw string (like `pattern`). On llamaCpp() the
+    // grammar was applied at the token level so this is a guaranteed no-op; on
+    // any other backend it is the actual structural check.
+    const str = typeof output === "string" ? output : JSON.stringify(output);
+    if (!matchesGbnf(schema.gbnf, str)) {
+      throw new SchemaViolationError(str, "Output does not conform to the GBNF grammar");
+    }
+    return str as T;
   }
 
   if ("validate" in schema) {

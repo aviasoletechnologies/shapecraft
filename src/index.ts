@@ -3,6 +3,7 @@ export { generateStream } from "./core/stream.js";
 export { generateBatch } from "./core/batch.js";
 export { toJsonSchema, buildStructuredPrompt } from "./core/schema.js";
 export { xmlType, validateXmlTemplate } from "./core/xml.js";
+export { parseGbnf, matchesGbnf, buildGbnfSystemPrompt } from "./core/gbnf.js";
 export { createConversationMemory, COMPLETION_SENTINEL } from "./core/turnaround.js";
 export { createClient } from "./core/client.js";
 export { composeMiddleware, loggingMiddleware } from "./core/middleware.js";
@@ -24,6 +25,7 @@ export type {
   PostProcessor,
   GuaranteeLevel,
   XmlInput,
+  GbnfInput,
   ChatMessage,
   ConversationMemory,
   TurnaroundOptions,

@@ -2,6 +2,7 @@ import type { GenerateOptions, GenerateResult, ResultMetadata, SchemaInput, Shap
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 import { generate, parseProviderModel } from "./generate.js";
 import { parseAndValidate } from "./parse.js";
+import { isGbnfInput } from "./validate.js";
 import { createTimeoutGuard } from "./timeout.js";
 import { tokenize } from "./streaming/tokenizer.js";
 import { IncrementalParser } from "./streaming/incremental-parser.js";
@@ -82,16 +83,24 @@ export function generateStream<T>(
 
           // Incremental per-field validation: the moment a top-level field's
           // JSON closes, check it against its own sub-schema immediately,
-          // instead of waiting for the whole object.
-          for (const { key, value } of parser.feed(delta)) {
-            const fieldError = validateFieldIfPossible(schema, key, value, { jsonSchemaValidator });
-            if (fieldError) {
-              earlyFailure = new SchemaViolationError(parser.text, { field: key, error: fieldError });
-              break;
-            }
+          // instead of waiting for the whole object. Feed the parser on every
+          // delta so `parser.text` accumulates for the final whole-buffer
+          // check, but only emit per-field `partial`s for schemas that
+          // decompose into named fields. GBNF is a string language: a
+          // JSON-shaped grammar could otherwise trip the field scanner into
+          // emitting misleading `partial` events, so skip emission for it.
+          const completedFields = parser.feed(delta);
+          if (!isGbnfInput(schema)) {
+            for (const { key, value } of completedFields) {
+              const fieldError = validateFieldIfPossible(schema, key, value, { jsonSchemaValidator });
+              if (fieldError) {
+                earlyFailure = new SchemaViolationError(parser.text, { field: key, error: fieldError });
+                break;
+              }
 
-            partialValue[key] = value;
-            emitter.emit({ type: "partial", value: { ...partialValue } as Partial<T>, attempt });
+              partialValue[key] = value;
+              emitter.emit({ type: "partial", value: { ...partialValue } as Partial<T>, attempt });
+            }
           }
 
           if (earlyFailure) break; // stop consuming further deltas - no point streaming a doomed attempt
