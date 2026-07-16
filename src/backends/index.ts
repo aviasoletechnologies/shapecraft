@@ -7,3 +7,4 @@ export { fireworks } from "./fireworks.js";
 export { mistral } from "./mistral.js";
 export { openRouter } from "./openRouter.js";
 export { gemini } from "./gemini.js";
+export { deepseek } from "./deepseek.js";
