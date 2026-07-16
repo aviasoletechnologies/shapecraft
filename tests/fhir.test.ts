@@ -148,6 +148,30 @@ describe("fhir presets", () => {
     expect(data).toEqual({ count: 0, active: false });
   });
 
+  it("validates a Patient carrying a custom extension", async () => {
+    const withExtension = {
+      ...validPatient,
+      extension: [
+        {
+          url: "https://hospital-a.example.com/fhir/StructureDefinition/preferred-pharmacy",
+          valueString: "Walgreens #4521",
+        },
+      ],
+    };
+    const { data } = await generate(fixedModel(withExtension), fhir.Patient, "extract patient");
+    expect(data).toEqual(withExtension);
+  });
+
+  it("rejects an extension missing its required url", async () => {
+    const badExtension = {
+      ...validPatient,
+      extension: [{ valueString: "no url here" }],
+    };
+    await expect(
+      generate(fixedModel(badExtension), fhir.Patient, "extract patient", { maxRetries: 1 })
+    ).rejects.toBeInstanceOf(Error);
+  });
+
   it("emits per-field partial events streaming a Patient", async () => {
     const model = streamingModel(JSON.stringify(validPatient));
     const stream = generateStream(model, fhir.Patient, "extract patient");

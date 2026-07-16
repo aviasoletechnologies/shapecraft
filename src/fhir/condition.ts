@@ -1,8 +1,10 @@
 import type { SchemaInput } from "../types.js";
 import {
   codeableConceptSchema,
+  extensionSchema,
   referenceSchema,
   type CodeableConcept,
+  type Extension,
   type Reference,
 } from "./types.js";
 
@@ -24,6 +26,7 @@ export interface Condition {
   subject: Reference;
   onsetDateTime?: string;
   recordedDate?: string;
+  extension?: Extension[];
 }
 
 const ConditionJsonSchema = {
@@ -38,6 +41,7 @@ const ConditionJsonSchema = {
     subject: referenceSchema,
     onsetDateTime: { type: "string" },
     recordedDate: { type: "string" },
+    extension: { type: "array", items: extensionSchema },
   },
 };
 

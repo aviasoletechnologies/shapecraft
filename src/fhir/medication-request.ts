@@ -1,8 +1,10 @@
 import type { SchemaInput } from "../types.js";
 import {
   codeableConceptSchema,
+  extensionSchema,
   referenceSchema,
   type CodeableConcept,
+  type Extension,
   type Reference,
 } from "./types.js";
 
@@ -39,6 +41,7 @@ export interface MedicationRequest {
   authoredOn?: string;
   requester?: Reference;
   dosageInstruction?: { text?: string }[];
+  extension?: Extension[];
 }
 
 const MedicationRequestJsonSchema = {
@@ -83,6 +86,7 @@ const MedicationRequestJsonSchema = {
         properties: { text: { type: "string" } },
       },
     },
+    extension: { type: "array", items: extensionSchema },
   },
 };
 

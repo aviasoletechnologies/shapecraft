@@ -2,10 +2,12 @@ import type { SchemaInput } from "../types.js";
 import {
   addressSchema,
   contactPointSchema,
+  extensionSchema,
   humanNameSchema,
   identifierSchema,
   type Address,
   type ContactPoint,
+  type Extension,
   type HumanName,
   type Identifier,
 } from "./types.js";
@@ -27,6 +29,7 @@ export interface Patient {
   birthDate: string; // YYYY-MM-DD — validated as string only, not date format
   telecom?: ContactPoint[];
   address?: Address[];
+  extension?: Extension[];
 }
 
 const PatientJsonSchema = {
@@ -41,6 +44,7 @@ const PatientJsonSchema = {
     birthDate: { type: "string" },
     telecom: { type: "array", items: contactPointSchema },
     address: { type: "array", items: addressSchema },
+    extension: { type: "array", items: extensionSchema },
   },
 };
 
