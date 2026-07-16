@@ -17,7 +17,7 @@ npm install @aviasole/shapecraft zod
 Install backend SDK as needed:
 
 ```bash
-npm install openai              # OpenAI, Fireworks, Mistral, OpenRouter (all OpenAI-compatible)
+npm install openai              # OpenAI, Fireworks, Mistral, OpenRouter, DeepSeek (all OpenAI-compatible)
 npm install groq-sdk            # Groq
 npm install @anthropic-ai/sdk   # Anthropic
 npm install @google/genai       # Gemini
@@ -314,6 +314,7 @@ conforming string can still be a wrong answer (see
 |---|---|---|
 | `openai()` | `native` | Server-side strict JSON schema |
 | `groq()` | `native` | JSON mode |
+| `deepseek()` | `native` | JSON mode (no schema-strict mode, same tier as `groq()`) |
 | `fireworks()` | `native` | Server-side JSON schema mode, plus a real token-level GBNF grammar mode |
 | `mistral()` | `native` | Server-side JSON schema mode |
 | `gemini()` | `native` | Server-side JSON schema mode (`responseJsonSchema`) |

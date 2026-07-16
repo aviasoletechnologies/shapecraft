@@ -33,6 +33,16 @@
   is server-side constrained decoding, same tier as `openai()`/`groq()`/`fireworks()`/
   `mistral()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same as
   every other backend without one.
+- **`deepseek()` backend** - DeepSeek, reached via the `openai` package pointed at DeepSeek's
+  base URL (no new SDK dependency, same approach as `fireworks()`/`mistral()`/`openRouter()`).
+  `guaranteeLevel: "native"` - `response_format: { type: "json_object" }` is a real,
+  server-side JSON-mode toggle, same tier as `groq()` - but unlike `fireworks()`/`mistral()`,
+  DeepSeek's API only supports `"json_object"` (valid JSON), not a schema-strict
+  `"json_schema"` mode. Requires the literal word "json" in the prompt for `json_object`
+  mode to behave, same restriction as `groq()`. No grammar mode - a `{ gbnf }` input is
+  prompt-only, best-effort, same as every other backend without one. Defaults to
+  `deepseek-v4-flash` - `deepseek-chat`/`deepseek-reasoner` are deprecated 2026-07-24 in
+  favor of `deepseek-v4-flash` (non-thinking) / `deepseek-v4-pro` (thinking).
 
 ### Fixed
 
