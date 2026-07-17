@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.3.0] - 2026-07-16
+
+### Added
+
+- **FHIR `Extension` support** - every R4 preset (`Patient`, `Observation`, `Condition`,
+  `MedicationRequest`, `Encounter`) now accepts an optional `extension?: Extension[]`. Common-
+  subset `Extension` type covers `url` plus `valueString`/`valueInteger`/`valueBoolean`/
+  `valueCodeableConcept` - real FHIR's `value[x]` has ~20 polymorphic variants; unsupported
+  ones pass through unvalidated (no `oneOf` support in `checkJsonSchema`) rather than being
+  rejected.
+
 ## [2.2.0] - 2026-07-10
 
 ### Added

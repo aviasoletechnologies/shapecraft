@@ -64,6 +64,22 @@ export interface Identifier {
   value?: string;
 }
 
+/**
+ * FHIR R4 Extension (common subset).
+ *
+ * Real FHIR `value[x]` has ~20 polymorphic variants. This preset covers the
+ * four most common (string/integer/boolean/CodeableConcept) — `checkJsonSchema`
+ * has no `oneOf`, so unsupported variants pass through unvalidated rather than
+ * being rejected. Add more `value*` fields here if a rarer variant is needed.
+ */
+export interface Extension {
+  url: string;
+  valueString?: string;
+  valueInteger?: number;
+  valueBoolean?: boolean;
+  valueCodeableConcept?: CodeableConcept;
+}
+
 // ── JSON Schema fragments (embedded by the resource presets) ─────────────────
 
 export const codingSchema = {
@@ -146,5 +162,17 @@ export const identifierSchema = {
   properties: {
     system: { type: "string" },
     value: { type: "string" },
+  },
+};
+
+export const extensionSchema = {
+  type: "object",
+  required: ["url"],
+  properties: {
+    url: { type: "string" },
+    valueString: { type: "string" },
+    valueInteger: { type: "number" },
+    valueBoolean: { type: "boolean" },
+    valueCodeableConcept: codeableConceptSchema,
   },
 };

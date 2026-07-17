@@ -2,10 +2,12 @@ import type { SchemaInput } from "../types.js";
 import {
   codeableConceptSchema,
   codingSchema,
+  extensionSchema,
   periodSchema,
   referenceSchema,
   type CodeableConcept,
   type Coding,
+  type Extension,
   type Period,
   type Reference,
 } from "./types.js";
@@ -34,6 +36,7 @@ export interface Encounter {
   subject?: Reference;
   period?: Period;
   reasonCode?: CodeableConcept[];
+  extension?: Extension[];
 }
 
 const EncounterJsonSchema = {
@@ -60,6 +63,7 @@ const EncounterJsonSchema = {
     subject: referenceSchema,
     period: periodSchema,
     reasonCode: { type: "array", items: codeableConceptSchema },
+    extension: { type: "array", items: extensionSchema },
   },
 };
 

@@ -1,9 +1,11 @@
 import type { SchemaInput } from "../types.js";
 import {
   codeableConceptSchema,
+  extensionSchema,
   quantitySchema,
   referenceSchema,
   type CodeableConcept,
+  type Extension,
   type Quantity,
   type Reference,
 } from "./types.js";
@@ -33,6 +35,7 @@ export interface Observation {
   subject?: Reference;
   effectiveDateTime?: string;
   valueQuantity?: Quantity;
+  extension?: Extension[];
 }
 
 const ObservationJsonSchema = {
@@ -58,6 +61,7 @@ const ObservationJsonSchema = {
     subject: referenceSchema,
     effectiveDateTime: { type: "string" },
     valueQuantity: quantitySchema,
+    extension: { type: "array", items: extensionSchema },
   },
 };
 

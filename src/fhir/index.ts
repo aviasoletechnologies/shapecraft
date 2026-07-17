@@ -41,4 +41,5 @@ export type {
   Period,
   Quantity,
   Identifier,
+  Extension,
 } from "./types.js";
