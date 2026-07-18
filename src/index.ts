@@ -11,7 +11,7 @@ export { SkillRegistry, generateSkillCall, runSkill, runSkillLoop } from "./core
 export { createClient } from "./core/client.js";
 export { exponentialBackoff } from "./core/retry.js";
 export { cascade } from "./core/cascade.js";
-export { composeMiddleware, loggingMiddleware } from "./core/middleware.js";
+export { composeMiddleware, loggingMiddleware, responseCacheMiddleware } from "./core/middleware.js";
 export { checkJsonSchema, runValidationPipeline } from "./core/validate.js";
 export { generateWithTools, toolParametersJsonSchema } from "./core/tools.js";
 
@@ -59,7 +59,7 @@ export type {
 export type { CreateClientOptions, ShapecraftClient } from "./core/client.js";
 export type { BackoffOptions } from "./core/retry.js";
 export type { CascadeOptions } from "./core/cascade.js";
-export type { Middleware, MiddlewareContext, NextFn } from "./core/middleware.js";
+export type { Middleware, MiddlewareContext, NextFn, ResponseCacheOptions } from "./core/middleware.js";
 export type { ValidationPipelineOptions, ValidationPipelineResult } from "./core/validate.js";
 
 export {

@@ -1,4 +1,6 @@
 import type { GenerateOptions, GenerateResult, SchemaInput, ShapecraftModel } from "../types.js";
+import { isZodSchema, isXmlInput, isGbnfInput } from "./validate.js";
+import { toJsonSchema } from "./schema.js";
 
 /** What a middleware sees for one generate() call. */
 export interface MiddlewareContext<T = unknown> {
@@ -63,5 +65,51 @@ export function loggingMiddleware(logger: Pick<Console, "log" | "error"> = conso
       logger.error(`${label} ← failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
+  };
+}
+
+// Serializes a schema into a stable string for the cache key. `{ validate }`
+// schemas carry a function (not serializable in a way that means anything
+// stable across calls), so they get a unique key every time - effectively
+// never cache-hit, which is the correct/safe behavior rather than caching on
+// a coincidental function reference match.
+let uncacheableCounter = 0;
+function schemaCacheKeyPart(schema: SchemaInput): string {
+  if (isZodSchema(schema)) return JSON.stringify(toJsonSchema(schema));
+  if ("jsonSchema" in schema) return JSON.stringify(schema.jsonSchema);
+  if ("pattern" in schema) return schema.pattern.toString();
+  if (isGbnfInput(schema)) return schema.gbnf;
+  if (isXmlInput(schema)) return JSON.stringify(schema.xml);
+  return `__uncacheable__${uncacheableCounter++}`;
+}
+
+export interface ResponseCacheOptions {
+  /** How long a cached result stays valid, in ms. Default 60_000 (1 minute). */
+  ttlMs?: number;
+}
+
+/**
+ * Caches generate() results keyed on model + schema + prompt (+ systemPrompt,
+ * since it's part of the actual prompt sent to the model). An identical call
+ * within `ttlMs` skips the model call entirely - `next()` is never invoked on
+ * a hit, so no retries/latency/cost either.
+ *
+ * ponytail: a plain unbounded Map, no max-size or LRU eviction - fine for a
+ * bounded number of distinct prompts; add an eviction policy if this ever
+ * runs long enough against high-cardinality prompts for memory to matter.
+ */
+export function responseCacheMiddleware(options: ResponseCacheOptions = {}): Middleware {
+  const ttlMs = options.ttlMs ?? 60_000;
+  const cache = new Map<string, { result: GenerateResult<unknown>; expiresAt: number }>();
+
+  return async <T>(ctx: MiddlewareContext<T>, next: NextFn<T>): Promise<GenerateResult<T>> => {
+    const key = JSON.stringify([ctx.model.id, schemaCacheKeyPart(ctx.schema), ctx.prompt, ctx.options.systemPrompt ?? null]);
+    const hit = cache.get(key);
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.result as GenerateResult<T>;
+    }
+    const result = await next();
+    cache.set(key, { result, expiresAt: Date.now() + ttlMs });
+    return result;
   };
 }
