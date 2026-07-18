@@ -15,6 +15,7 @@ import { runValidationPipeline, isOpenApiInput } from "./validate.js";
 import { runTurnaround } from "./turnaround.js";
 import { createTimeoutGuard } from "./timeout.js";
 import { resolveOpenApiSchema } from "./openapi.js";
+import { delay } from "./retry.js";
 
 export function parseProviderModel(id: string): { provider: string; model: string } {
   const idx = id.indexOf(":");
@@ -53,8 +54,17 @@ export async function generate<T>(
   }
 
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, semanticValidator, confidenceScorer, minConfidence, postProcessors } =
-    options;
+  const {
+    systemPrompt,
+    timeoutMs,
+    signal,
+    jsonSchemaValidator,
+    semanticValidator,
+    confidenceScorer,
+    minConfidence,
+    postProcessors,
+    retryDelayMs,
+  } = options;
   const { provider, model: modelName } = parseProviderModel(model.id);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -87,6 +97,10 @@ export async function generate<T>(
     } catch (err) {
       if (!(err instanceof SchemaViolationError)) throw err;
       if (attempt === maxRetries) break;
+      if (retryDelayMs) {
+        const ms = typeof retryDelayMs === "function" ? retryDelayMs(attempt) : retryDelayMs;
+        await delay(ms, signal);
+      }
     } finally {
       cleanup();
     }

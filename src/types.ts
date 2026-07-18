@@ -240,6 +240,16 @@ export interface GenerateOptions {
   systemPrompt?: string;
   temperature?: number;
   /**
+   * Delay before each retry (after attempt N fails, before attempt N+1), in
+   * ms. A plain number is a fixed delay; a function receives the attempt
+   * number that just failed (1-based) and returns the delay before the next
+   * one - see `exponentialBackoff()` for a ready-made jittered strategy.
+   * Defaults to no delay (today's behavior - retries fire immediately).
+   * Never applied after the final attempt, and cut short by `signal`
+   * aborting mid-wait.
+   */
+  retryDelayMs?: number | ((attempt: number) => number);
+  /**
    * Abort the in-flight call. Always enforced at the core level — the retry
    * loop stops waiting the instant it fires — regardless of whether the
    * backend itself reads `signal`. A backend that does gets the underlying

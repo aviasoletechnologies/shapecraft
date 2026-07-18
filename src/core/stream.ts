@@ -5,6 +5,7 @@ import { parseAndValidate } from "./parse.js";
 import { isGbnfInput, isOpenApiInput } from "./validate.js";
 import { resolveOpenApiSchema } from "./openapi.js";
 import { createTimeoutGuard } from "./timeout.js";
+import { delay } from "./retry.js";
 import { tokenize } from "./streaming/tokenizer.js";
 import { IncrementalParser } from "./streaming/incremental-parser.js";
 import { validateFieldIfPossible } from "./streaming/validator.js";
@@ -27,7 +28,7 @@ export function generateStream<T>(
   options: GenerateOptions = {}
 ): StreamHandle<T> {
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator } = options;
+  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, retryDelayMs } = options;
   const { provider, model: modelName } = parseProviderModel(model.id);
 
   const emitter = new StreamEmitter<T>();
@@ -131,6 +132,16 @@ export function generateStream<T>(
           rejectResult(new MaxRetriesExceededError(maxRetries));
           return;
         }
+        if (retryDelayMs) {
+          const ms = typeof retryDelayMs === "function" ? retryDelayMs(attempt) : retryDelayMs;
+          try {
+            await delay(ms, signal);
+          } catch (err) {
+            emitter.finish();
+            rejectResult(err);
+            return;
+          }
+        }
         continue; // next attempt streams fresh
       }
 
@@ -156,6 +167,16 @@ export function generateStream<T>(
           emitter.finish();
           rejectResult(new MaxRetriesExceededError(maxRetries));
           return;
+        }
+        if (retryDelayMs) {
+          const ms = typeof retryDelayMs === "function" ? retryDelayMs(attempt) : retryDelayMs;
+          try {
+            await delay(ms, signal);
+          } catch (delayErr) {
+            emitter.finish();
+            rejectResult(delayErr);
+            return;
+          }
         }
         // else: loop continues, next attempt streams fresh
       }
