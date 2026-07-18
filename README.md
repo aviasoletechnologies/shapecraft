@@ -513,6 +513,38 @@ callers retrying the same failure don't all retry in lockstep. Never applied aft
 attempt, and cut short immediately if `signal` aborts mid-wait. Applies to both `generate()`
 and `generateStream()`.
 
+## Model Cascade
+
+`cascade([model1, model2, ...])` starts with the first model and escalates to the next one
+once it's failed enough times - useful for "try a cheap/fast model first, only pay for a
+stronger one on the calls that actually need it."
+
+```typescript
+import { generate, cascade, groq, anthropic } from "@aviasole/shapecraft";
+
+const model = cascade([
+  groq({ model: "llama-3.3-70b-versatile" }),  // tried first
+  anthropic({ model: "claude-sonnet-4-5" }),   // escalated to on failure
+]);
+
+const result = await generate(model, schema, prompt, { maxRetries: 4 });
+console.log(result.metadata.provider); // whichever model actually produced the result
+```
+
+`cascade()` returns a normal `ShapecraftModel` - no changes needed anywhere else, it works
+with `generate()`, `generateStream()`, and `turnaround: true` for free. "Failed" is any
+reason `generate()` would otherwise retry - a structural violation, a failed
+`semanticValidator`, or a score below `minConfidence` - since all three already collapse into
+the same retry signal internally, there's nothing extra to configure per failure type.
+`escalateAfterFailures` (default `1`) controls how many failures on the current model happen
+before moving to the next one; escalation never wraps back around, it caps at the last model
+in the list. `result.metadata`/`result.guaranteeLevel` always reflect whichever model actually
+produced the accepted result, not necessarily the first one in the list.
+
+If a cascade mixes models with and without native streaming, an attempt on a non-streaming
+model automatically falls back to a one-shot `generate()` call for that attempt only - the
+same fallback `generateStream()` itself uses for any plain non-streaming model.
+
 ## Error Handling
 
 ```typescript
