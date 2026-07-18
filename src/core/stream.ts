@@ -29,7 +29,6 @@ export function generateStream<T>(
 ): StreamHandle<T> {
   const maxRetries = options.maxRetries ?? 3;
   const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, retryDelayMs } = options;
-  const { provider, model: modelName } = parseProviderModel(model.id);
 
   const emitter = new StreamEmitter<T>();
 
@@ -150,6 +149,8 @@ export function generateStream<T>(
         // the extraction regex matches the whole string (no-op); for a
         // best-effort backend that wraps JSON in prose, it's required.
         const data = parseAndValidate<T>(parser.text, schema, { extractJson: true });
+        // Read fresh per attempt, not once upfront - see generate.ts for why.
+        const { provider, model: modelName } = parseProviderModel(model.id);
         const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
         const finalResult: GenerateResult<T> = { data, guaranteeLevel: model.guaranteeLevel, attempts: attempt, metadata };
         emitter.emit({ type: "done", result: finalResult });

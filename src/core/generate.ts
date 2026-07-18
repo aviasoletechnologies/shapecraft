@@ -65,7 +65,6 @@ export async function generate<T>(
     postProcessors,
     retryDelayMs,
   } = options;
-  const { provider, model: modelName } = parseProviderModel(model.id);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     // Fail fast on an already-aborted signal — skip calling the backend
@@ -86,6 +85,10 @@ export async function generate<T>(
         minConfidence,
         postProcessors: postProcessors as PostProcessor<T>[] | undefined,
       });
+      // Read fresh per attempt, not once upfront - a cascade() wrapper's `id`
+      // reflects whichever underlying model actually produced this result,
+      // and would otherwise always report the cascade's first model.
+      const { provider, model: modelName } = parseProviderModel(model.id);
       const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
       return {
         data,
