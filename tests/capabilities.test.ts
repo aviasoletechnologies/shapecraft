@@ -15,12 +15,13 @@ describe("ShapecraftModel.capabilities", () => {
     ["groq", groq({ model: "llama-3.3-70b-versatile" })],
     ["anthropic", anthropic({ model: "claude-haiku-4-5-20251001" })],
     ["ollama", ollama({ model: "llama3.2" })],
-  ])("%s exposes streaming/chat/structuredOutput true, toolCalling false", (_name, model) => {
+  ])("%s exposes streaming/chat/structuredOutput/skillDispatch true, toolCalling false", (_name, model) => {
     expect(model.capabilities).toEqual({
       streaming: true,
       chat: true,
       structuredOutput: true,
       toolCalling: false,
+      skillDispatch: true,
     });
   });
 

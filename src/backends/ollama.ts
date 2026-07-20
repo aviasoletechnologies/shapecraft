@@ -31,7 +31,7 @@ export function ollama(options: OllamaBackendOptions): ShapecraftModel {
   return {
     id: `ollama:${options.model}`,
     guaranteeLevel: "constrained",
-    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false },
+    capabilities: { streaming: true, chat: true, structuredOutput: true, toolCalling: false, skillDispatch: true },
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
       const { system, user } = buildStructuredPrompt(prompt, schema, systemPrompt);

@@ -1,5 +1,34 @@
 # Changelog
 
+## [2.4.0] - 2026-07-17
+
+### Added
+
+- **Skill-based generation** - let the model pick which of several registered typed
+  operations to run, with validated arguments, instead of always extracting one fixed
+  shape.
+  - `SkillRegistry` - register a skill as `{ name, description?, inputSchema, handler,
+    terminal? }`. `inputSchema` is Zod-only in v1 - that's the mechanism that lets the
+    dispatch schema be built as a `z.discriminatedUnion` with zero new validation code.
+  - `generateSkillCall(model, registry, prompt, options?)` - builds the dispatch schema
+    from the registry and calls `generate()`, returning `{ skill, args }`. A thin
+    wrapper, not a separate mechanism: same retry loop, same `guaranteeLevel` semantics
+    per backend as any other `generate()` call. Deliberately not built on any
+    provider's native tool-calling API - those don't exist on Ollama or `llamaCpp()` at
+    all, so this is what makes dispatch work identically across every backend.
+  - `runSkill(registry, call)` - the executor. Throws `SkillExecutionError` (not
+    `SchemaViolationError`) if the handler itself throws - a business-logic failure,
+    never retried the way a structural failure is.
+  - `runSkillLoop(model, registry, goal, options?)` - repeatedly dispatches + runs a
+    skill, feeding results back as context, until a skill marked `terminal: true`
+    succeeds or `maxTurns` is hit (`MaxSkillTurnsExceededError`, carrying the loop's
+    `memory` so a caller can resume with a fresh turn budget). A handler failure -
+    including the terminal skill's own - is recorded as an error turn and fed back to
+    the model rather than aborting the loop.
+  - New `ModelCapabilities.skillDispatch: boolean`, `true` on all 4 built-in backends.
+    `toolCalling` is untouched - it keeps meaning native provider function-calling, a
+    different, still-unbuilt thing.
+
 ## [2.3.0] - 2026-07-16
 
 ### Added
