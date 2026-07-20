@@ -515,6 +515,41 @@ max-size or eviction policy — fine for a bounded number of distinct prompts; a
 strategy yourself (or ask for one) if you're caching against high-cardinality prompts for long
 enough that memory becomes a real concern.
 
+
+
+## Cost Aggregation
+
+shapecraft doesn't compute cost itself — no built-in per-model pricing tables (those go stale
+the moment a provider changes rates, a maintenance burden this repo hasn't taken on for
+anything else). `createCostTracker()` is a running total, nothing more — you supply the cost
+per call from your own pricing logic (e.g. off `result.metadata.tokens`), it just sums what
+you give it.
+
+```typescript
+import { generate, createCostTracker } from "@aviasole/shapecraft";
+
+const tracker = createCostTracker();
+
+const result = await generate(model, schema, prompt);
+tracker.record(myOwnPricingLogic(result.metadata.tokens));
+
+console.log(tracker.total, tracker.calls);
+```
+
+`costTrackingMiddleware(tracker, costFn)` is sugar for automatic tracking through
+`createClient()` instead of calling `tracker.record()` yourself after every direct
+`generate()` call:
+
+```typescript
+import { createClient, createCostTracker, costTrackingMiddleware } from "@aviasole/shapecraft";
+
+const tracker = createCostTracker();
+const client = createClient({
+  middleware: [costTrackingMiddleware(tracker, (result) => myOwnPricingLogic(result.metadata.tokens))],
+});
+
+await client.generate(model, schema, prompt); // tracked automatically
+```
 ## Retry Backoff
 
 Retries fire immediately by default — the same behavior as always. Pass `retryDelayMs` to
