@@ -345,7 +345,7 @@ conforming string can still be a wrong answer (see
 > only the older `responseSchema` (Gemini's own Type-enum OpenAPI-subset shape).
 
 ```typescript
-import { openai, groq, fireworks, mistral, gemini, openRouter, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
+import { openai, groq, fireworks, mistral, gemini, openRouter, deepseek, ollama, anthropic, llamaCpp } from "@aviasole/shapecraft";
 
 const gpt       = openai({ model: "gpt-4o-mini" });
 const fast      = groq({ model: "llama-3.3-70b-versatile" });
@@ -353,6 +353,7 @@ const cloudGbnf = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-i
 const mist      = mistral({ model: "mistral-large-latest" });
 const gem       = gemini({ model: "gemini-flash-latest" });
 const router    = openRouter({ model: "openai/gpt-4o-mini" });
+const deep      = deepseek({ model: "deepseek-v4-flash" });
 const local     = ollama({ model: "llama3.2" });
 const native    = llamaCpp({ modelPath: "./models/llama-3.2-3b.gguf" });
 const claude    = anthropic({ model: "claude-haiku-4-5-20251001", maxRetries: 3 });
@@ -364,7 +365,7 @@ Every built-in backend also exposes `capabilities` — an explicit, inspectable 
 
 ```typescript
 console.log(claude.capabilities);
-// { streaming: true, chat: true, structuredOutput: true, toolCalling: false }
+// { streaming: true, chat: true, structuredOutput: true, toolCalling: false, skillDispatch: true }
 ```
 
 ```typescript
@@ -373,6 +374,7 @@ interface ModelCapabilities {
   chat: boolean;            // has chat() - required for turnaround: true
   structuredOutput: boolean; // has generate() - always true
   toolCalling: boolean;     // not yet supported by any backend
+  skillDispatch: boolean;   // generateSkillCall()/runSkillLoop() - always true, built on generate()
 }
 ```
 
@@ -384,7 +386,7 @@ Other libraries solve overlapping parts of this problem well. This is what's act
 
 | Capability | Instructor-js | zod-gpt | Vercel AI SDK (`generateObject`) | shapecraft |
 |---|---|---|---|---|
-| Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Anthropic, Ollama |
+| Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Anthropic, Ollama, and many more |
 | Local model support | - | - | no grammar-level constraint | Ollama with token-level GBNF grammar |
 | Per-provider reliability signal | - | - | - | `guaranteeLevel`: `native` / `constrained` / `best-effort` |
 | Retry on schema failure | not documented | fixed 3 attempts, 60s timeout | configurable `maxRetries` | configurable, only on schema-validation failure |
