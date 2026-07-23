@@ -3,11 +3,13 @@ import { generate } from "../src/core/generate.js";
 import { generateStream } from "../src/core/stream.js";
 import { matchesGbnf, parseGbnf, buildGbnfSystemPrompt } from "../src/core/gbnf.js";
 import { groq } from "../src/backends/groq.js";
+import { fireworks } from "../src/backends/fireworks.js";
 import { MaxRetriesExceededError } from "../src/types.js";
 import type { ShapecraftModel, StreamEvent } from "../src/types.js";
 import { mockModel } from "./helpers/index.js";
 
 const hasGroq = !!process.env.GROQ_API_KEY;
+const hasFireworks = !!process.env.FIREWORKS_API_KEY;
 
 async function collect<T>(iter: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
@@ -308,6 +310,31 @@ describe("GBNF input — Groq backend (real API)", () => {
 
   it.skipIf(!hasGroq)("streaming does not force json_object mode either", async () => {
     const model = groq({ model: "llama-3.3-70b-versatile" });
+    const stream = generateStream(model, { gbnf: `root ::= "positive" | "negative" | "neutral"` }, "Classify: 'I love it!'");
+    const result = await stream.result;
+    expect(["positive", "negative", "neutral"]).toContain(result.data);
+  }, 30_000);
+});
+
+// ─── Real backend: Fireworks AI (skip-gated) ──────────────────────────────────
+// Fireworks' grammar mode (response_format: { type: "grammar", grammar }) is a
+// genuine token-level constraint, not a prompted-and-checked best-effort string
+// like every other cloud backend's gbnf path - this is the actual reason a
+// dedicated fireworks() backend exists instead of pointing openai() at
+// Fireworks' base URL. https://docs.fireworks.ai/structured-responses/structured-output-grammar-based
+describe("GBNF input — Fireworks backend (real API)", () => {
+  it.skipIf(!hasFireworks)("produces grammar-conforming output via native grammar mode", async () => {
+    const model = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" });
+    const result = await generate(
+      model,
+      { gbnf: `root ::= "positive" | "negative" | "neutral"` },
+      "Classify the sentiment: 'This is the best purchase I've made all year!'"
+    );
+    expect(["positive", "negative", "neutral"]).toContain(result.data);
+  }, 30_000);
+
+  it.skipIf(!hasFireworks)("streaming works the same way through grammar mode", async () => {
+    const model = fireworks({ model: "accounts/fireworks/models/llama-v3p1-70b-instruct" });
     const stream = generateStream(model, { gbnf: `root ::= "positive" | "negative" | "neutral"` }, "Classify: 'I love it!'");
     const result = await stream.result;
     expect(["positive", "negative", "neutral"]).toContain(result.data);

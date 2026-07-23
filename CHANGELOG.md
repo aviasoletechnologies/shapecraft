@@ -1,5 +1,61 @@
 # Changelog
 
+## [2.5.0] - 2026-07-15
+
+### Added
+
+- **`fireworks()` backend** - Fireworks AI, reached via the `openai` package pointed at
+  Fireworks' base URL (no new SDK dependency). `guaranteeLevel: "native"` - JSON/Zod
+  schemas use Fireworks' server-side JSON schema mode, same tier as `openai()`/`groq()`.
+  - The differentiator: a `{ gbnf }` input gets Fireworks' own grammar mode
+    (`response_format: { type: "grammar", grammar }`), a genuine token-level constraint
+    applied server-side - not the prompted-and-checked best-effort path every other cloud
+    backend falls back to for gbnf. It's the same real guarantee `llamaCpp()` gives
+    locally, just without needing a local `.gguf` file.
+- **`mistral()` backend** - Mistral AI, same `openai`-package-pointed-at-a-different-base-URL
+  approach as `fireworks()`. `guaranteeLevel: "native"` - `response_format: { type:
+  "json_schema", ... }` is server-side enforced, same tier as `openai()`/`groq()`/
+  `fireworks()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same
+  as `openai()`/`groq()`.
+- **`openRouter()` backend** - same `openai`-package-pointed-at-a-different-base-URL
+  approach as `fireworks()`/`mistral()`. `guaranteeLevel: "best-effort"`, deliberately
+  not `"native"` like the other cloud backends - OpenRouter is pass-through across many
+  different underlying providers/models, and `response_format: { type: "json_schema" }`
+  enforcement isn't guaranteed for every model it can route to. Defensively requests
+  `extractJson: true` on every call for the same reason `anthropic()` needs it. No
+  grammar mode - a `{ gbnf }` input is prompt-only, best-effort.
+- **`gemini()` backend** - Google Gemini, via the official `@google/genai` SDK rather
+  than `openai`-pointed-at-a-different-base-URL - Gemini's OpenAI-compatible endpoint is
+  a migration bridge for OpenAI users, not its primary integration path, and doesn't
+  expose `responseJsonSchema` (plain JSON Schema, what `toJsonSchema()` already produces)
+  - only the older `responseSchema` (Gemini's own Type-enum OpenAPI-subset shape).
+  `guaranteeLevel: "native"` - `responseJsonSchema`/`responseMimeType: "application/json"`
+  is server-side constrained decoding, same tier as `openai()`/`groq()`/`fireworks()`/
+  `mistral()`. No grammar mode - a `{ gbnf }` input is prompt-only, best-effort, same as
+  every other backend without one.
+- **`deepseek()` backend** - DeepSeek, reached via the `openai` package pointed at DeepSeek's
+  base URL (no new SDK dependency, same approach as `fireworks()`/`mistral()`/`openRouter()`).
+  `guaranteeLevel: "native"` - `response_format: { type: "json_object" }` is a real,
+  server-side JSON-mode toggle, same tier as `groq()` - but unlike `fireworks()`/`mistral()`,
+  DeepSeek's API only supports `"json_object"` (valid JSON), not a schema-strict
+  `"json_schema"` mode. Requires the literal word "json" in the prompt for `json_object`
+  mode to behave, same restriction as `groq()`. No grammar mode - a `{ gbnf }` input is
+  prompt-only, best-effort, same as every other backend without one. Defaults to
+  `deepseek-v4-flash` - `deepseek-chat`/`deepseek-reasoner` are deprecated 2026-07-24 in
+  favor of `deepseek-v4-flash` (non-thinking) / `deepseek-v4-pro` (thinking).
+
+### Fixed
+
+- **`toJsonSchema()` emitted the legacy OpenAPI 3.0 boolean form for exclusive bounds**
+  (`.positive()`/`.negative()`/`.gt()`/`.lt()`) - `exclusiveMinimum: true` + a separate
+  `minimum`, instead of the numeric form real JSON Schema requires (`exclusiveMinimum: 0`).
+  Backends that validate the schema itself strictly (confirmed on Mistral, which rejected
+  it outright with a 422) reject the boolean form before the model ever runs. Switched
+  `zodToJsonSchema`'s target from `openApi3` to `jsonSchema7` (stripping the extraneous
+  `$schema` key it adds). Affects every backend's Zod-schema handling, not just Mistral -
+  verified live against `groq()`, `anthropic()`, and `ollama()` with the schema that broke
+  Mistral.
+
 ## [2.4.0] - 2026-07-17
 
 ### Added
