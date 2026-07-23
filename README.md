@@ -12,6 +12,7 @@ Structured output generation for LLMs in Node.js. Token-level constraints for lo
 
 ```bash
 npm install @aviasole/shapecraft zod
+# or: pnpm add @aviasole/shapecraft zod
 ```
 
 Install backend SDK as needed:
