@@ -2,7 +2,8 @@ import type { GenerateOptions, GenerateResult, ResultMetadata, SchemaInput, Shap
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
 import { generate, parseProviderModel } from "./generate.js";
 import { parseAndValidate } from "./parse.js";
-import { isGbnfInput } from "./validate.js";
+import { isGbnfInput, isOpenApiInput } from "./validate.js";
+import { resolveOpenApiSchema } from "./openapi.js";
 import { createTimeoutGuard } from "./timeout.js";
 import { tokenize } from "./streaming/tokenizer.js";
 import { IncrementalParser } from "./streaming/incremental-parser.js";
@@ -39,6 +40,13 @@ export function generateStream<T>(
   });
 
   async function pump(): Promise<void> {
+    // Resolve an `{ openapi }` input to a plain `{ jsonSchema }` input once,
+    // upfront - same as generate(), so every stage below only ever sees a
+    // jsonSchema input.
+    if (isOpenApiInput(schema)) {
+      schema = (await resolveOpenApiSchema(schema)) as SchemaInput<T>;
+    }
+
     // No streaming support on this model - fall back to one-shot generate(),
     // and surface its full output as a single delta so textStream still works.
     if (!model.generateStream) {

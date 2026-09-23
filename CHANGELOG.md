@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0] - 2026-09-17
+
+### Added
+
+- **YAML schema inputs**: describe the target shape with JSON Schema and receive
+  validated YAML output, parsed by default or returned as a raw string with `parse: false`.
+- **OpenAPI-driven schema inputs**: derive a schema from an OpenAPI 3.x operation by
+  `operationId`, using a file path, URL, or parsed specification object.
+- OpenAPI request-body and success-response targets, with the same validation and retry
+  behavior as other structured schema inputs.
+
 ## [2.9.0] - 2026-08-14
 
 ### Added

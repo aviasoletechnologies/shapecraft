@@ -3,14 +3,20 @@ import type {
   ConfidenceScorer,
   GbnfInput,
   JsonSchemaValidator,
+  OpenApiInput,
   PostProcessor,
   SchemaInput,
   SemanticValidator,
   XmlInput,
+  YamlInput,
 } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { finalizeXmlOutput, isNonEmpty } from "./xml.js";
+import { finalizeXmlOutput } from "./xml.js";
 import { matchesGbnf } from "./gbnf.js";
+import { checkJsonSchema } from "./jsonSchemaCheck.js";
+import { finalizeYamlOutput } from "./yaml.js";
+
+export { checkJsonSchema };
 
 // Duck-typed rather than `instanceof z.ZodType`: a `file:`-linked or
 // nested-install consumer can end up with a different zod module instance
@@ -36,6 +42,17 @@ export function isGbnfInput(schema: SchemaInput): schema is GbnfInput {
   return typeof schema === "object" && schema !== null && "gbnf" in schema;
 }
 
+export function isYamlInput(schema: SchemaInput): schema is YamlInput {
+  return typeof schema === "object" && schema !== null && "yaml" in schema;
+}
+
+// An OpenApiInput is resolved to a plain `{ jsonSchema }` input before it ever
+// reaches validateOutput/parseAndValidate — this guard exists only so
+// generate() can detect and resolve it upfront (see openapi.ts).
+export function isOpenApiInput(schema: SchemaInput): schema is OpenApiInput {
+  return typeof schema === "object" && schema !== null && "openapi" in schema;
+}
+
 function nullToUndefined(value: unknown): unknown {
   if (value === null) return undefined;
   if (Array.isArray(value)) return value.map(nullToUndefined);
@@ -45,47 +62,6 @@ function nullToUndefined(value: unknown): unknown {
     );
   }
   return value;
-}
-
-export function checkJsonSchema(value: unknown, schema: Record<string, unknown>): void {
-  const type = schema.type as string | undefined;
-
-  if (type) {
-    const actual = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
-    if (actual !== type) {
-      throw new Error(`Expected type "${type}", got "${actual}"`);
-    }
-  }
-
-  if (schema.enum) {
-    if (!(schema.enum as unknown[]).includes(value)) {
-      throw new Error(`Value not in enum: ${JSON.stringify(value)}`);
-    }
-  }
-
-  if (typeof value === "object" && value !== null && !Array.isArray(value) && schema.properties) {
-    const obj = value as Record<string, unknown>;
-    const required = (schema.required as string[]) ?? [];
-    const properties = schema.properties as Record<string, Record<string, unknown>>;
-
-    for (const key of required) {
-      if (!(key in obj)) throw new Error(`Missing required property: "${key}"`);
-      // "required" means present AND non-empty — same as the XML path. Stops a
-      // constrained grammar from satisfying a required field with "" / [] / {}
-      // when the source had no value for it.
-      if (!isNonEmpty(obj[key])) throw new Error(`Required property is empty: "${key}"`);
-    }
-
-    for (const [key, propSchema] of Object.entries(properties)) {
-      if (key in obj) checkJsonSchema(obj[key], propSchema);
-    }
-  }
-
-  if (Array.isArray(value) && schema.items) {
-    for (const item of value) {
-      checkJsonSchema(item, schema.items as Record<string, unknown>);
-    }
-  }
 }
 
 export function validateOutput<T>(
@@ -141,6 +117,16 @@ export function validateOutput<T>(
       return finalizeXmlOutput<T>(output, schema);
     }
     // already parsed by a real backend — pass through
+    return output as T;
+  }
+
+  if (isYamlInput(schema)) {
+    if (typeof output === "string") {
+      // raw YAML string (from mock models, or a backend that doesn't call
+      // parseAndValidate itself) — validate now
+      return finalizeYamlOutput<T>(output, schema);
+    }
+    // already parsed by the backend's own parseAndValidate call — pass through
     return output as T;
   }
 

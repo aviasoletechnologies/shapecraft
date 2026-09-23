@@ -1,6 +1,6 @@
 {
   "name": "@aviasole/shapecraft",
-  "version": "2.9.0",
+  "version": "3.0.0",
   "description": "Structured output generation for LLMs in Node.js — token-level constraints for local models, native JSON modes for cloud APIs",
   "author": "Aviasole Technologies",
   "license": "Apache-2.0",
@@ -105,7 +105,9 @@
     }
   },
   "dependencies": {
+    "@readme/openapi-parser": "^6.3.0",
     "fast-xml-parser": "^5.9.3",
+    "yaml": "^2.9.0",
     "zod-to-json-schema": "^3.23.0"
   }
 }

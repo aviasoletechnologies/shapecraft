@@ -11,9 +11,10 @@ import type {
   TurnResult,
 } from "../types.js";
 import { MaxRetriesExceededError, SchemaViolationError } from "../types.js";
-import { runValidationPipeline } from "./validate.js";
+import { runValidationPipeline, isOpenApiInput } from "./validate.js";
 import { runTurnaround } from "./turnaround.js";
 import { createTimeoutGuard } from "./timeout.js";
+import { resolveOpenApiSchema } from "./openapi.js";
 
 export function parseProviderModel(id: string): { provider: string; model: string } {
   const idx = id.indexOf(":");
@@ -40,6 +41,13 @@ export async function generate<T>(
   options: GenerateOptions = {},
   turnaround?: TurnaroundOptions
 ): Promise<GenerateResult<T> | TurnResult<T>> {
+  // An `{ openapi }` input is resolved to a plain `{ jsonSchema }` input once,
+  // upfront - every backend and downstream stage only ever sees a jsonSchema
+  // input, never the unresolved openapi one.
+  if (isOpenApiInput(schema)) {
+    schema = (await resolveOpenApiSchema(schema)) as SchemaInput<T>;
+  }
+
   if (turnaround?.turnaround) {
     return runTurnaround<T>(model, schema, prompt, options, turnaround);
   }

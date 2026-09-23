@@ -1,7 +1,8 @@
 import type { SchemaInput } from "../types.js";
 import { SchemaViolationError } from "../types.js";
-import { isZodSchema, isXmlInput, isGbnfInput } from "./validate.js";
+import { isZodSchema, isXmlInput, isGbnfInput, isYamlInput } from "./validate.js";
 import { finalizeXmlOutput } from "./xml.js";
+import { finalizeYamlOutput } from "./yaml.js";
 import { matchesGbnf } from "./gbnf.js";
 
 export function parseAndValidate<T>(
@@ -24,6 +25,11 @@ export function parseAndValidate<T>(
   // XML schemas — parse XML then validate structure
   if (isXmlInput(schema)) {
     return finalizeXmlOutput<T>(raw, schema);
+  }
+
+  // YAML schemas — parse YAML then validate against the JSON Schema hint
+  if (isYamlInput(schema)) {
+    return finalizeYamlOutput<T>(raw, schema);
   }
 
   try {

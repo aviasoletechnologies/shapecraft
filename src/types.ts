@@ -39,8 +39,36 @@ export type XmlInput = {
   };
 };
 
+export type YamlInput = {
+  yaml: {
+    /** JSON-Schema-shaped description of the target structure. */
+    schema: Record<string, unknown>;
+    /** Return the parsed JS object (default) instead of the raw YAML string. */
+    parse?: boolean;
+  };
+};
+
+export type OpenApiInput = {
+  openapi: {
+    /** File path, URL, or already-parsed OpenAPI 3.x document. */
+    spec: string | Record<string, unknown>;
+    /** Operation to derive a schema from. */
+    operationId: string;
+    /** Which side of the operation to pull a schema from. Defaults to "requestBody". */
+    target?: "requestBody" | "response";
+  };
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SchemaInput<T = unknown> = z.ZodType<T> | JsonSchemaInput | PatternInput | ValidatorInput | XmlInput | GbnfInput;
+export type SchemaInput<T = unknown> =
+  | z.ZodType<T>
+  | JsonSchemaInput
+  | PatternInput
+  | ValidatorInput
+  | XmlInput
+  | GbnfInput
+  | YamlInput
+  | OpenApiInput;
 
 export interface ChatMessage {
   role: "user" | "assistant" | "tool";

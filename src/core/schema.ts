@@ -3,7 +3,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { SchemaInput, ValidatorInput } from "../types.js";
 import { buildXmlSystemPrompt } from "./xml.js";
 import { buildGbnfSystemPrompt } from "./gbnf.js";
-import { isXmlInput, isGbnfInput, isZodSchema } from "./validate.js";
+import { buildYamlSystemPrompt } from "./yaml.js";
+import { isXmlInput, isGbnfInput, isZodSchema, isYamlInput } from "./validate.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function toJsonSchema(schema: z.ZodType<any>): Record<string, unknown> {
@@ -60,6 +61,8 @@ export function buildStructuredPrompt(
     schemaInfo = buildGbnfSystemPrompt(schema);
   } else if (isXmlInput(schema)) {
     schemaInfo = buildXmlSystemPrompt(schema);
+  } else if (isYamlInput(schema)) {
+    schemaInfo = buildYamlSystemPrompt(schema);
   } else if ("validate" in schema && (schema as ValidatorInput).hint) {
     schemaInfo = `Respond with valid JSON matching this schema exactly:\n\n${JSON.stringify((schema as ValidatorInput).hint, null, 2)}`;
   } else {
