@@ -64,6 +64,62 @@ describe("responseCacheMiddleware", () => {
     expect(b.calls()).toBe(1);
   });
 
+  it("does not share cached results between distinct model instances with the same id", async () => {
+    const first = countingModel("mock:shared");
+    let secondCalls = 0;
+    const second: ShapecraftModel = {
+      id: "mock:shared",
+      guaranteeLevel: "constrained",
+      async generate<T>(): Promise<T> {
+        secondCalls++;
+        return { name: "Bob", age: 40 } as T;
+      },
+    };
+    const client = createClient({ middleware: [responseCacheMiddleware()] });
+    await client.generate(first.model, PersonSchema, "x");
+    const result = await client.generate(second, PersonSchema, "x");
+    expect(result.data.name).toBe("Bob");
+    expect(secondCalls).toBe(1);
+  });
+
+  it("does not reuse a result when validation rules change", async () => {
+    const { model, calls } = countingModel();
+    const client = createClient({ middleware: [responseCacheMiddleware()] });
+    await client.generate(model, PersonSchema, "x", { maxRetries: 1 });
+    await expect(client.generate(model, PersonSchema, "x", {
+      maxRetries: 1,
+      semanticValidator: () => { throw new Error("not grounded"); },
+    })).rejects.toThrow();
+    expect(calls()).toBe(2);
+  });
+
+  it("keeps Zod refinements separate even when their JSON schemas match", async () => {
+    const { model, calls } = countingModel();
+    const client = createClient({ middleware: [responseCacheMiddleware()] });
+    const loose = z.object({ name: z.string(), age: z.number() });
+    const strict = loose.refine((value) => value.name === "Bob");
+    await client.generate(model, loose, "x", { maxRetries: 1 });
+    await expect(client.generate(model, strict, "x", { maxRetries: 1 })).rejects.toThrow();
+    expect(calls()).toBe(2);
+  });
+
+  it("does not cache stateful global regex validation", async () => {
+    let calls = 0;
+    const model: ShapecraftModel = {
+      id: "mock:text",
+      guaranteeLevel: "best-effort",
+      async generate<T>(): Promise<T> {
+        calls++;
+        return "Alice" as T;
+      },
+    };
+    const client = createClient({ middleware: [responseCacheMiddleware()] });
+    const schema = { pattern: /Alice/g };
+    await client.generate(model, schema, "x", { maxRetries: 1 });
+    await expect(client.generate(model, schema, "x", { maxRetries: 1 })).rejects.toThrow();
+    expect(calls).toBe(2);
+  });
+
   it("a different systemPrompt is a cache miss", async () => {
     const { model, calls } = countingModel();
     const client = createClient({ middleware: [responseCacheMiddleware()] });

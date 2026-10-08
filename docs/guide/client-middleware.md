@@ -27,21 +27,35 @@ const timing: Middleware = async (ctx, next) => {
 };
 ```
 
-A middleware that never calls `next()` short-circuits the real call entirely - the standard shape for a cache:
+A middleware that never calls `next()` short-circuits the real call. Use the built-in response cache for repeated calls:
 
 ```typescript
-import type { Middleware, GenerateResult } from "@aviasole/shapecraft";
+import { createClient, responseCacheMiddleware } from "@aviasole/shapecraft";
 
-const cache = new Map<string, GenerateResult<unknown>>();
+const client = createClient({ middleware: [responseCacheMiddleware({ ttlMs: 60_000 })] });
+await client.generate(model, schema, prompt); // model call
+await client.generate(model, schema, prompt); // cache hit
+```
 
-const cachingMiddleware: Middleware = async (ctx, next) => {
-  const key = `${ctx.model.id}:${ctx.prompt}`;
-  const hit = cache.get(key);
-  if (hit) return hit;                  // model never called
-  const result = await next();
-  cache.set(key, result);
-  return result;
-};
+The cache keys on model instance, schema, prompt, and simple generation options.
+It bypasses calls with validation callbacks, post-processors, abort signals, or
+schema inputs it cannot safely key. Zod schemas cache by instance so refinements
+cannot share a cached result.
+
+To aggregate caller-supplied costs, use `createCostTracker()` directly or add
+`costTrackingMiddleware()`. Shapecraft does not populate `metadata.tokens` yet;
+the value in this example is an estimate:
+
+```typescript
+import { createClient, createCostTracker, costTrackingMiddleware } from "@aviasole/shapecraft";
+
+const tracker = createCostTracker();
+const client = createClient({
+  middleware: [costTrackingMiddleware(tracker, () => 0.001)],
+});
+
+await client.generate(model, schema, prompt);
+console.log(tracker.total, tracker.calls);
 ```
 
 Every client-level default (`retry`, `timeoutMs`, `jsonSchemaValidator`, `semanticValidator`, `confidenceScorer`, `minConfidence`, `postProcessors`) is merged into each call, and a per-call option always wins over the client-level one.

@@ -36,6 +36,37 @@ describe("cascade()", () => {
     expect(result.metadata.provider).toBe("solo");
   });
 
+  it("starts each sequential and concurrent request on the first model", async () => {
+    let firstCalls = 0;
+    let fallbackCalls = 0;
+    const first: ShapecraftModel = {
+      id: "first",
+      guaranteeLevel: "native",
+      async generate<T>(): Promise<T> {
+        firstCalls++;
+        return { name: "Alice", age: 30 } as T;
+      },
+    };
+    const fallback: ShapecraftModel = {
+      id: "fallback",
+      guaranteeLevel: "native",
+      async generate<T>(): Promise<T> {
+        fallbackCalls++;
+        return { name: "Bob", age: 40 } as T;
+      },
+    };
+    const model = cascade([first, fallback]);
+    await generate(model, PersonSchema, "one");
+    await generate(model, PersonSchema, "two");
+    const concurrent = await Promise.all([
+      generate(model, PersonSchema, "three"),
+      generate(model, PersonSchema, "four"),
+    ]);
+    expect(concurrent.map((result) => result.metadata.provider)).toEqual(["first", "first"]);
+    expect(firstCalls).toBe(4);
+    expect(fallbackCalls).toBe(0);
+  });
+
   it("escalates to the next model after the default 1 failure", async () => {
     const m = cascade([alwaysFails("weak"), alwaysSucceeds("strong", { name: "Bob", age: 40 })]);
     const result = await generate(m, PersonSchema, "x", { maxRetries: 3 });
@@ -76,15 +107,16 @@ describe("cascade()", () => {
     // an out-of-bounds error trying to escalate past index 1.
   });
 
-  it("id/guaranteeLevel reflect the currently active model at read time", async () => {
+  it("the public wrapper resets its model after a completed request", async () => {
     const weak = alwaysFails("weak");
     const strong = alwaysSucceeds("strong", { ok: true });
     const m = cascade([weak, strong]);
     expect(m.id).toBe("weak");
     expect(m.guaranteeLevel).toBe("best-effort");
-    await generate(m, { validate: () => true }, "x", { maxRetries: 2 }).catch(() => {});
-    expect(m.id).toBe("strong");
-    expect(m.guaranteeLevel).toBe("native");
+    const result = await generate(m, { validate: () => true }, "x", { maxRetries: 2 });
+    expect(result.metadata.provider).toBe("strong");
+    expect(m.id).toBe("weak");
+    expect(m.guaranteeLevel).toBe("best-effort");
   });
 
   it("throws immediately if constructed with an empty list", () => {
@@ -115,5 +147,14 @@ describe("cascade() with generateStream()", () => {
     const handle = generateStream(m, PersonSchema, "x", { maxRetries: 3 });
     const result = await handle.result;
     expect(result.data).toEqual({ name: "Z", age: 5 });
+  });
+
+  it("starts each stream on the first model", async () => {
+    const model = cascade([
+      streamAlwaysSucceeds("first", { name: "A", age: 1 }),
+      streamAlwaysSucceeds("fallback", { name: "B", age: 2 }),
+    ]);
+    expect((await generateStream(model, PersonSchema, "one").result).metadata.provider).toBe("first");
+    expect((await generateStream(model, PersonSchema, "two").result).metadata.provider).toBe("first");
   });
 });

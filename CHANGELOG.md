@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.1.0] - 2026-10-08
+
+### Added
+
+- Optional retry delays and `exponentialBackoff()` for validated generation and streaming.
+- `cascade()` model fallback within each request, including streaming calls.
+- `responseCacheMiddleware()` for repeated `createClient().generate()` calls.
+- `createCostTracker()` and `costTrackingMiddleware()` for caller-supplied costs.
+
+### Fixed
+
+- Isolated cascade routing between sequential and concurrent requests.
+- Kept cache entries separate when model instances, Zod refinements, or generation policies differ.
+- Made retry delays reject when their abort signal is already cancelled.
+
 ## [3.0.0] - 2026-09-17
 
 ### Added

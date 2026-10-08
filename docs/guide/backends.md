@@ -104,3 +104,20 @@ interface ModelCapabilities {
 `capabilities` is optional on `ShapecraftModel` - a custom model implementation that predates this field (or simply doesn't set it) still satisfies the interface unchanged, and `model.capabilities` is `undefined` for it. `chat?`/`generateStream?` remain the actual methods the core calls; `capabilities` is just a declared summary of the same information, not a replacement mechanism.
 
 See [Tool Calling](/guide/tool-calling) for `toolCalling`/`generateWithTools()`, and [Skill-Based Generation](/guide/skill-based-generation) for `skillDispatch`.
+
+## Model Cascade
+
+`cascade()` tries models in order within one `generate()` or `generateStream()`
+request. A validation failure can move the next attempt to a stronger model;
+each new request starts with the first model again.
+
+```typescript
+import { cascade, generate, groq, anthropic } from "@aviasole/shapecraft";
+
+const model = cascade([groq(), anthropic()], { escalateAfterFailures: 1 });
+const result = await generate(model, schema, prompt, { maxRetries: 3 });
+console.log(result.metadata.provider); // provider that produced the accepted result
+```
+
+`maxRetries` is the total attempt budget across all models. Transport and rate-limit
+errors are not retried by this cascade; it escalates on schema-validation retries.

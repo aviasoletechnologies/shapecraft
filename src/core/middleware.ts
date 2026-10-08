@@ -1,6 +1,5 @@
 import type { GenerateOptions, GenerateResult, SchemaInput, ShapecraftModel } from "../types.js";
 import { isZodSchema, isXmlInput, isGbnfInput } from "./validate.js";
-import { toJsonSchema } from "./schema.js";
 
 /** What a middleware sees for one generate() call. */
 export interface MiddlewareContext<T = unknown> {
@@ -68,19 +67,13 @@ export function loggingMiddleware(logger: Pick<Console, "log" | "error"> = conso
   };
 }
 
-// Serializes a schema into a stable string for the cache key. `{ validate }`
-// schemas carry a function (not serializable in a way that means anything
-// stable across calls), so they get a unique key every time - effectively
-// never cache-hit, which is the correct/safe behavior rather than caching on
-// a coincidental function reference match.
-let uncacheableCounter = 0;
-function schemaCacheKeyPart(schema: SchemaInput): string {
-  if (isZodSchema(schema)) return JSON.stringify(toJsonSchema(schema));
-  if ("jsonSchema" in schema) return JSON.stringify(schema.jsonSchema);
-  if ("pattern" in schema) return schema.pattern.toString();
-  if (isGbnfInput(schema)) return schema.gbnf;
-  if (isXmlInput(schema)) return JSON.stringify(schema.xml);
-  return `__uncacheable__${uncacheableCounter++}`;
+// Custom validators and schema formats without a stable cache key bypass the cache.
+function schemaCacheKeyPart(schema: SchemaInput): string | undefined {
+  if ("jsonSchema" in schema) return `json:${JSON.stringify(schema.jsonSchema)}`;
+  if ("pattern" in schema) return schema.pattern.global || schema.pattern.sticky ? undefined : `pattern:${schema.pattern}`;
+  if (isGbnfInput(schema)) return `gbnf:${schema.gbnf}`;
+  if (isXmlInput(schema)) return `xml:${JSON.stringify(schema.xml)}`;
+  return undefined;
 }
 
 export interface ResponseCacheOptions {
@@ -89,8 +82,8 @@ export interface ResponseCacheOptions {
 }
 
 /**
- * Caches generate() results keyed on model + schema + prompt (+ systemPrompt,
- * since it's part of the actual prompt sent to the model). An identical call
+ * Caches generate() results keyed on model, schema, prompt, and primitive
+ * generation options. Calls with callbacks or a signal bypass the cache. An identical call
  * within `ttlMs` skips the model call entirely - `next()` is never invoked on
  * a hit, so no retries/latency/cost either.
  *
@@ -101,9 +94,29 @@ export interface ResponseCacheOptions {
 export function responseCacheMiddleware(options: ResponseCacheOptions = {}): Middleware {
   const ttlMs = options.ttlMs ?? 60_000;
   const cache = new Map<string, { result: GenerateResult<unknown>; expiresAt: number }>();
+  const objectIds = new WeakMap<object, number>();
+  let nextId = 0;
+  function objectId(value: object): number {
+    let id = objectIds.get(value);
+    if (id === undefined) {
+      id = ++nextId;
+      objectIds.set(value, id);
+    }
+    return id;
+  }
+  const cacheableOptions = new Set(["systemPrompt", "maxRetries", "timeoutMs", "temperature", "retryDelayMs"]);
 
   return async <T>(ctx: MiddlewareContext<T>, next: NextFn<T>): Promise<GenerateResult<T>> => {
-    const key = JSON.stringify([ctx.model.id, schemaCacheKeyPart(ctx.schema), ctx.prompt, ctx.options.systemPrompt ?? null]);
+    if (Object.entries(ctx.options).some(([key, value]) =>
+      !cacheableOptions.has(key) || (value !== undefined && typeof value !== "string" && typeof value !== "number")
+    )) {
+      return next();
+    }
+    const schemaKey = isZodSchema(ctx.schema)
+      ? `zod:${objectId(ctx.schema)}` // refinements are not represented in JSON Schema
+      : schemaCacheKeyPart(ctx.schema);
+    if (schemaKey === undefined) return next();
+    const key = JSON.stringify([objectId(ctx.model), ctx.model.id, schemaKey, ctx.prompt, ctx.options]);
     const hit = cache.get(key);
     if (hit && hit.expiresAt > Date.now()) {
       return hit.result as GenerateResult<T>;

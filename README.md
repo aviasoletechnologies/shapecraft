@@ -492,9 +492,9 @@ Full docs for all of the above: **[aviasoletechnologies.github.io/shapecraft](ht
 
 ## Response Cache
 
-`responseCacheMiddleware({ ttlMs? })` caches `generate()` results keyed on model + schema +
-prompt + `systemPrompt` — an identical call within `ttlMs` skips the model call entirely (no
-retries, no latency, no cost).
+`responseCacheMiddleware({ ttlMs? })` caches `generate()` results keyed on the model
+instance, schema, prompt, and simple generation options. An identical call within
+`ttlMs` skips the model call entirely.
 
 ```typescript
 import { createClient, responseCacheMiddleware } from "@aviasole/shapecraft";
@@ -507,31 +507,29 @@ const r1 = await client.generate(model, schema, prompt); // real call
 const r2 = await client.generate(model, schema, prompt); // cache hit — no model call
 ```
 
-A `{ validate }` custom-validator schema is never cache-hit — its check function can't be
-serialized into a stable key, so caching it on a coincidental function-reference match would
-be more surprising than just never caching it. Every other schema type (Zod, `jsonSchema`,
-`pattern`, `xml`, `gbnf`) is fully cacheable. The cache is a plain in-memory `Map` with no
+A `{ validate }`, YAML, or OpenAPI input bypasses this cache. Zod inputs cache by
+schema instance, so different refinements cannot share an entry. Calls with a
+signal, validation/scoring callbacks, post-processors, or other options that
+cannot be safely keyed also bypass the cache. The cache is an in-memory `Map` with no
 max-size or eviction policy — fine for a bounded number of distinct prompts; add an eviction
 strategy yourself (or ask for one) if you're caching against high-cardinality prompts for long
 enough that memory becomes a real concern.
-
-
 
 ## Cost Aggregation
 
 shapecraft doesn't compute cost itself — no built-in per-model pricing tables (those go stale
 the moment a provider changes rates, a maintenance burden this repo hasn't taken on for
-anything else). `createCostTracker()` is a running total, nothing more — you supply the cost
-per call from your own pricing logic (e.g. off `result.metadata.tokens`), it just sums what
-you give it.
+anything else). `createCostTracker()` sums costs you supply. `result.metadata.tokens`
+is not populated by the current backends, so use your own billing data or a clearly
+labeled estimate.
 
 ```typescript
 import { generate, createCostTracker } from "@aviasole/shapecraft";
 
 const tracker = createCostTracker();
 
-const result = await generate(model, schema, prompt);
-tracker.record(myOwnPricingLogic(result.metadata.tokens));
+await generate(model, schema, prompt);
+tracker.record(0.001); // estimated cost per call; replace with your billing data
 
 console.log(tracker.total, tracker.calls);
 ```
@@ -545,16 +543,17 @@ import { createClient, createCostTracker, costTrackingMiddleware } from "@aviaso
 
 const tracker = createCostTracker();
 const client = createClient({
-  middleware: [costTrackingMiddleware(tracker, (result) => myOwnPricingLogic(result.metadata.tokens))],
+  middleware: [costTrackingMiddleware(tracker, () => 0.001)], // estimated per call
 });
 
 await client.generate(model, schema, prompt); // tracked automatically
 ```
+
 ## Retry Backoff
 
-Retries fire immediately by default — the same behavior as always. Pass `retryDelayMs` to
-wait between a failed attempt and the next one, useful against rate-limited APIs where an
-instant retry just hits the same limit again.
+Schema-validation retries fire immediately by default. Pass `retryDelayMs` to
+space those attempts out. Provider transport and rate-limit errors still
+propagate immediately; this option does not retry them.
 
 ```typescript
 import { generate, exponentialBackoff } from "@aviasole/shapecraft";

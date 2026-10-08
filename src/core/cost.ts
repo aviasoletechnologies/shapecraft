@@ -17,7 +17,7 @@ export interface CostTracker {
  * - no built-in per-model pricing tables (that's a real maintenance burden
  * this repo hasn't taken on for anything else, and pricing tables go stale
  * the moment a provider changes rates). You supply the cost per call (from
- * your own pricing logic, e.g. off `result.metadata.tokens`), this just sums
+ * your own pricing logic or billing data), this just sums
  * what you give it.
  */
 export function createCostTracker(): CostTracker {

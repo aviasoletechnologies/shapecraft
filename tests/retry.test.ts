@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { generate } from "../src/core/generate.js";
 import { generateStream } from "../src/core/stream.js";
-import { exponentialBackoff } from "../src/core/retry.js";
+import { delay, exponentialBackoff } from "../src/core/retry.js";
 import { SchemaViolationError, MaxRetriesExceededError } from "../src/types.js";
 import type { ShapecraftModel } from "../src/types.js";
 
@@ -66,6 +66,12 @@ describe("exponentialBackoff", () => {
       expect(value).toBeLessThanOrEqual(computed);
     }
   });
+});
+
+it("rejects a retry delay whose signal was already aborted", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled before backoff"));
+  await expect(delay(500, controller.signal)).rejects.toThrow("cancelled before backoff");
 });
 
 // ─── generate() with retryDelayMs ────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { isGbnfInput, isOpenApiInput } from "./validate.js";
 import { resolveOpenApiSchema } from "./openapi.js";
 import { createTimeoutGuard } from "./timeout.js";
 import { delay } from "./retry.js";
+import { modelForRun } from "./cascade.js";
 import { tokenize } from "./streaming/tokenizer.js";
 import { IncrementalParser } from "./streaming/incremental-parser.js";
 import { validateFieldIfPossible } from "./streaming/validator.js";
@@ -27,6 +28,7 @@ export function generateStream<T>(
   prompt: string,
   options: GenerateOptions = {}
 ): StreamHandle<T> {
+  const runModel = modelForRun(model);
   const maxRetries = options.maxRetries ?? 3;
   const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, retryDelayMs } = options;
 
@@ -49,9 +51,9 @@ export function generateStream<T>(
 
     // No streaming support on this model - fall back to one-shot generate(),
     // and surface its full output as a single delta so textStream still works.
-    if (!model.generateStream) {
+    if (!runModel.generateStream) {
       emitter.emit({ type: "attempt-start", attempt: 1 });
-      const finalResult = await generate<T>(model, schema, prompt, options);
+      const finalResult = await generate<T>(runModel, schema, prompt, options);
       const text = typeof finalResult.data === "string" ? finalResult.data : JSON.stringify(finalResult.data, null, 2);
       emitter.emit({ type: "delta", text, attempt: 1 });
       emitter.emit({ type: "done", result: finalResult });
@@ -78,7 +80,7 @@ export function generateStream<T>(
       let earlyFailure: SchemaViolationError | null = null;
 
       const { guard, signal: callSignal, cleanup } = createTimeoutGuard(timeoutMs, signal);
-      const source = model.generateStream<T>(
+      const source = runModel.generateStream<T>(
         prompt,
         schema,
         systemPrompt,
@@ -150,9 +152,9 @@ export function generateStream<T>(
         // best-effort backend that wraps JSON in prose, it's required.
         const data = parseAndValidate<T>(parser.text, schema, { extractJson: true });
         // Read fresh per attempt, not once upfront - see generate.ts for why.
-        const { provider, model: modelName } = parseProviderModel(model.id);
+        const { provider, model: modelName } = parseProviderModel(runModel.id);
         const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
-        const finalResult: GenerateResult<T> = { data, guaranteeLevel: model.guaranteeLevel, attempts: attempt, metadata };
+        const finalResult: GenerateResult<T> = { data, guaranteeLevel: runModel.guaranteeLevel, attempts: attempt, metadata };
         emitter.emit({ type: "done", result: finalResult });
         emitter.finish();
         resolveResult(finalResult);

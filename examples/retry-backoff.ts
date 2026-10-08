@@ -1,8 +1,8 @@
 /**
  * Example: retryDelayMs — waiting between retries instead of firing immediately.
  *
- * Retries fire immediately by default. Against a rate-limited API, an instant
- * retry just hits the same limit again — retryDelayMs lets you back off instead.
+ * Schema-validation retries fire immediately by default. This option spaces
+ * them out; provider rate-limit errors are not retried by generate().
  */
 import { generate, groq, exponentialBackoff } from "@aviasole/shapecraft";
 

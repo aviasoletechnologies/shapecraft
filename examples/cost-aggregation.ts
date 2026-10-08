@@ -17,34 +17,28 @@ const schema = {
   },
 };
 
-// gpt-4o-mini's real per-token pricing, as of this writing - your own rates
-// live here, shapecraft has no opinion on what a token costs.
-const PRICE_PER_1K_INPUT = 0.00015;
-const PRICE_PER_1K_OUTPUT = 0.0006;
-
-function costOf(tokens: { input: number; output: number } | undefined): number {
-  if (!tokens) return 0;
-  return (tokens.input / 1000) * PRICE_PER_1K_INPUT + (tokens.output / 1000) * PRICE_PER_1K_OUTPUT;
-}
+// Replace this estimate with usage/cost from your own billing source.
+// Shapecraft does not populate result.metadata.tokens yet.
+const estimatedCostPerCall = 0.001;
 
 // ── Manual: call tracker.record() yourself after each direct generate() ─────
 const tracker = createCostTracker();
 
-const r1 = await generate(model, schema, "Extract: Jane Doe, 28");
-tracker.record(costOf(r1.metadata.tokens));
+await generate(model, schema, "Extract: Jane Doe, 28");
+tracker.record(estimatedCostPerCall);
 
-const r2 = await generate(model, schema, "Extract: John Smith, 41");
-tracker.record(costOf(r2.metadata.tokens));
+await generate(model, schema, "Extract: John Smith, 41");
+tracker.record(estimatedCostPerCall);
 
-console.log(`Spent $${tracker.total.toFixed(6)} across ${tracker.calls} calls`);
+console.log(`Estimated $${tracker.total.toFixed(6)} across ${tracker.calls} calls`);
 
 // ── Automatic: wire it into createClient() and every call tracks itself ─────
 const autoTracker = createCostTracker();
 const client = createClient({
-  middleware: [costTrackingMiddleware(autoTracker, (result) => costOf(result.metadata.tokens))],
+  middleware: [costTrackingMiddleware(autoTracker, () => estimatedCostPerCall)],
 });
 
 await client.generate(model, schema, "Extract: Ada Lovelace, 36");
 await client.generate(model, schema, "Extract: Grace Hopper, 85");
 
-console.log(`Spent $${autoTracker.total.toFixed(6)} across ${autoTracker.calls} calls`);
+console.log(`Estimated $${autoTracker.total.toFixed(6)} across ${autoTracker.calls} calls`);

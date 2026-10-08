@@ -14,6 +14,13 @@ export interface CascadeOptions {
   escalateAfterFailures?: number;
 }
 
+const runFactories = new WeakMap<ShapecraftModel, () => ShapecraftModel>();
+
+/** Give each top-level generation its own cascade position and failure count. */
+export function modelForRun(model: ShapecraftModel): ShapecraftModel {
+  return runFactories.get(model)?.() ?? model;
+}
+
 /**
  * Wraps an ordered list of models as a single `ShapecraftModel`. Delegates to
  * `models[0]` until it's failed `escalateAfterFailures` times in a row, then
@@ -22,95 +29,98 @@ export interface CascadeOptions {
  * is currently active, so a successful result's metadata accurately shows
  * which model actually produced it.
  *
- * Works with generate(), generateStream(), and turnaround for free - none of
- * them need to know a cascade is a wrapper rather than a plain model. No
- * changes to the retry loop, validation pipeline, or GenerateOptions were
- * needed for this to work - see legacy-planning/18-model-cascade-plan.md.
+ * generate() and generateStream() create a fresh cascade run per request, so
+ * sequential and concurrent requests cannot advance one another's models.
  */
 export function cascade(models: ShapecraftModel[], options: CascadeOptions = {}): ShapecraftModel {
   if (models.length === 0) throw new Error("cascade() requires at least one model");
   const escalateAfterFailures = Math.max(1, options.escalateAfterFailures ?? 1);
 
-  let index = 0;
-  let failuresOnCurrent = 0;
+  function createRun(): ShapecraftModel {
+    const runModels = models.map(modelForRun);
+    let index = 0;
+    let failuresOnCurrent = 0;
 
-  function current(): ShapecraftModel {
-    return models[index];
-  }
-
-  // Called at the start of every generate()/generateStream() invocation -
-  // the first call for a fresh generate() run doesn't count as a prior
-  // failure, so escalation only advances on the 2nd+ call.
-  let calls = 0;
-  function onCall(): void {
-    calls++;
-    if (calls === 1) return; // first attempt - nothing failed yet
-    failuresOnCurrent++;
-    if (failuresOnCurrent >= escalateAfterFailures && index < models.length - 1) {
-      index++;
-      failuresOnCurrent = 0;
+    function current(): ShapecraftModel {
+      return runModels[index];
     }
-  }
 
-  // `as ShapecraftModel`: `capabilities` is optional (`?:`) on the interface,
-  // but a getter's declared return type can't express "sometimes absent"
-  // under exactOptionalPropertyTypes the way a plain optional field can -
-  // the object is a fully valid ShapecraftModel at runtime regardless.
-  return {
-    get id() {
-      return current().id;
-    },
-    get guaranteeLevel() {
-      return current().guaranteeLevel;
-    },
-    get capabilities(): ModelCapabilities | undefined {
-      return current().capabilities;
-    },
-    async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
-      onCall();
-      return current().generate<T>(prompt, schema, systemPrompt, callOptions);
-    },
-    async chat(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
-      const model = current();
-      if (!model.chat) throw new Error(`cascade(): current model "${model.id}" does not implement chat()`);
-      return model.chat(messages, systemPrompt);
-    },
-    // Unconditionally present (unlike the underlying models, where it's
-    // optional) - a cascade can mix models with and without native
-    // streaming, so whether *this* attempt actually streams depends on
-    // which model is currently active, decided fresh per call. Falls back to
-    // one-shot generate() for an attempt on a non-streaming model, same
-    // fallback stream.ts itself uses when a plain model lacks generateStream.
-    async *generateStream<T>(
-      prompt: string,
-      schema: SchemaInput<T>,
-      systemPrompt?: string,
-      callOptions?: ModelCallOptions
-    ): AsyncIterable<string> {
-      onCall();
-      const model = current();
-      if (model.generateStream) {
-        yield* model.generateStream<T>(prompt, schema, systemPrompt, callOptions);
-        return;
+    // Each retry on this run means the previous attempt failed validation.
+    let calls = 0;
+    function onCall(): void {
+      calls++;
+      if (calls === 1) return; // first attempt - nothing failed yet
+      failuresOnCurrent++;
+      if (failuresOnCurrent >= escalateAfterFailures && index < runModels.length - 1) {
+        index++;
+        failuresOnCurrent = 0;
       }
-      try {
-        const result = await model.generate<T>(prompt, schema, systemPrompt, callOptions);
-        yield typeof result === "string" ? result : JSON.stringify(result, null, 2);
-      } catch (err) {
-        // model.generate() threw (e.g. a SchemaViolationError from a
-        // structural/semantic/confidence failure) - yield its raw failed
-        // text instead of letting the throw escape this generator.
-        // stream.ts's catch around the tokenize loop treats ANY thrown
-        // error as fatal/non-retryable (it doesn't distinguish
-        // SchemaViolationError); yielding text that will itself fail
-        // parseAndValidate routes this through the same "streamed, then
-        // failed validation" path every other retryable failure takes.
-        if (err instanceof SchemaViolationError) {
-          yield err.raw;
+    }
+
+    // `as ShapecraftModel`: `capabilities` is optional (`?:`) on the interface,
+    // but a getter's declared return type can't express "sometimes absent"
+    // under exactOptionalPropertyTypes the way a plain optional field can -
+    // the object is a fully valid ShapecraftModel at runtime regardless.
+    return {
+      get id() {
+        return current().id;
+      },
+      get guaranteeLevel() {
+        return current().guaranteeLevel;
+      },
+      get capabilities(): ModelCapabilities | undefined {
+        return current().capabilities;
+      },
+      async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string, callOptions?: ModelCallOptions): Promise<T> {
+        onCall();
+        return current().generate<T>(prompt, schema, systemPrompt, callOptions);
+      },
+      async chat(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+        const model = current();
+        if (!model.chat) throw new Error(`cascade(): current model "${model.id}" does not implement chat()`);
+        return model.chat(messages, systemPrompt);
+      },
+      // Unconditionally present (unlike the underlying models, where it's
+      // optional) - a cascade can mix models with and without native
+      // streaming, so whether *this* attempt actually streams depends on
+      // which model is currently active, decided fresh per call. Falls back to
+      // one-shot generate() for an attempt on a non-streaming model, same
+      // fallback stream.ts itself uses when a plain model lacks generateStream.
+      async *generateStream<T>(
+        prompt: string,
+        schema: SchemaInput<T>,
+        systemPrompt?: string,
+        callOptions?: ModelCallOptions
+      ): AsyncIterable<string> {
+        onCall();
+        const model = current();
+        if (model.generateStream) {
+          yield* model.generateStream<T>(prompt, schema, systemPrompt, callOptions);
           return;
         }
-        throw err;
-      }
-    },
-  } as ShapecraftModel;
+        try {
+          const result = await model.generate<T>(prompt, schema, systemPrompt, callOptions);
+          yield typeof result === "string" ? result : JSON.stringify(result, null, 2);
+        } catch (err) {
+          // model.generate() threw (e.g. a SchemaViolationError from a
+          // structural/semantic/confidence failure) - yield its raw failed
+          // text instead of letting the throw escape this generator.
+          // stream.ts's catch around the tokenize loop treats ANY thrown
+          // error as fatal/non-retryable (it doesn't distinguish
+          // SchemaViolationError); yielding text that will itself fail
+          // parseAndValidate routes this through the same "streamed, then
+          // failed validation" path every other retryable failure takes.
+          if (err instanceof SchemaViolationError) {
+            yield err.raw;
+            return;
+          }
+          throw err;
+        }
+      },
+    } as ShapecraftModel;
+  }
+
+  const model = createRun();
+  runFactories.set(model, createRun);
+  return model;
 }
