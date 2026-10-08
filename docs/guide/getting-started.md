@@ -48,7 +48,7 @@ Other libraries solve overlapping parts of this problem well. This is what's act
 | Capability | Instructor-js | zod-gpt | Vercel AI SDK (`generateObject`) | shapecraft |
 |---|---|---|---|---|
 | Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Fireworks, Mistral, OpenRouter, DeepSeek, Gemini, Anthropic, Ollama, llama.cpp |
-| Local model support | - | - | no grammar-level constraint | Ollama / llama.cpp with token-level GBNF grammar |
+| Local model support | - | - | no grammar-level constraint | Ollama / llama.cpp with token-level schema or GBNF grammar |
 | Per-provider reliability signal | - | - | - | `guaranteeLevel`: `native` / `constrained` / `best-effort` |
 | Retry on schema failure | not documented | fixed 3 attempts, 60s timeout | configurable `maxRetries` | configurable, only on schema-validation failure |
 | Timeout / cancellation | not documented | hardcoded 60s | via provider fetch options | `timeoutMs` / `AbortSignal`, enforced at the core regardless of backend |
