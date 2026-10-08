@@ -22,6 +22,6 @@ function loadDotEnv(): Record<string, string> {
 
 export default defineConfig({
   test: {
-    env: loadDotEnv(),
+    env: process.env.SHAPECRAFT_TEST_OFFLINE === "1" ? {} : loadDotEnv(),
   },
 });

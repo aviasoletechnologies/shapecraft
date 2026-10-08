@@ -23,6 +23,12 @@ const result = await generate(model, {
 }, prompt);
 ```
 
+With `llamaCpp()`, both Zod schemas and `{ jsonSchema }` inputs are converted to
+node-llama-cpp's JSON Schema grammar and constrained during token generation.
+That converter supports a subset of JSON Schema. Shapecraft still runs its
+post-generation validation, but keywords outside the grammar converter's
+supported subset are not guaranteed to be enforced during generation.
+
 ## Regex Pattern
 
 ```typescript

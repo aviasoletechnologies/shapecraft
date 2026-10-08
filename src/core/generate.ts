@@ -15,6 +15,8 @@ import { runValidationPipeline, isOpenApiInput } from "./validate.js";
 import { runTurnaround } from "./turnaround.js";
 import { createTimeoutGuard } from "./timeout.js";
 import { resolveOpenApiSchema } from "./openapi.js";
+import { delay } from "./retry.js";
+import { modelForRun } from "./cascade.js";
 
 export function parseProviderModel(id: string): { provider: string; model: string } {
   const idx = id.indexOf(":");
@@ -48,14 +50,24 @@ export async function generate<T>(
     schema = (await resolveOpenApiSchema(schema)) as SchemaInput<T>;
   }
 
+  const runModel = modelForRun(model);
+
   if (turnaround?.turnaround) {
-    return runTurnaround<T>(model, schema, prompt, options, turnaround);
+    return runTurnaround<T>(runModel, schema, prompt, options, turnaround);
   }
 
   const maxRetries = options.maxRetries ?? 3;
-  const { systemPrompt, timeoutMs, signal, jsonSchemaValidator, semanticValidator, confidenceScorer, minConfidence, postProcessors } =
-    options;
-  const { provider, model: modelName } = parseProviderModel(model.id);
+  const {
+    systemPrompt,
+    timeoutMs,
+    signal,
+    jsonSchemaValidator,
+    semanticValidator,
+    confidenceScorer,
+    minConfidence,
+    postProcessors,
+    retryDelayMs,
+  } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     // Fail fast on an already-aborted signal — skip calling the backend
@@ -66,7 +78,7 @@ export async function generate<T>(
     const { guard, signal: callSignal, cleanup } = createTimeoutGuard(timeoutMs, signal);
     try {
       const raw = await Promise.race([
-        model.generate<T>(prompt, schema, systemPrompt, callSignal ? { signal: callSignal } : undefined),
+        runModel.generate<T>(prompt, schema, systemPrompt, callSignal ? { signal: callSignal } : undefined),
         guard,
       ]);
       const { data, confidence } = await runValidationPipeline<T>(raw, schema, prompt, {
@@ -76,10 +88,14 @@ export async function generate<T>(
         minConfidence,
         postProcessors: postProcessors as PostProcessor<T>[] | undefined,
       });
+      // Read fresh per attempt, not once upfront - a cascade() wrapper's `id`
+      // reflects whichever underlying model actually produced this result,
+      // and would otherwise always report the cascade's first model.
+      const { provider, model: modelName } = parseProviderModel(runModel.id);
       const metadata: ResultMetadata = { provider, model: modelName, latencyMs: Date.now() - t0 };
       return {
         data,
-        guaranteeLevel: model.guaranteeLevel,
+        guaranteeLevel: runModel.guaranteeLevel,
         attempts: attempt,
         metadata,
         ...(confidence === undefined ? {} : { confidence }),
@@ -89,6 +105,10 @@ export async function generate<T>(
       if (attempt === maxRetries) break;
     } finally {
       cleanup();
+    }
+    if (retryDelayMs) {
+      const ms = typeof retryDelayMs === "function" ? retryDelayMs(attempt) : retryDelayMs;
+      await delay(ms, signal);
     }
   }
 

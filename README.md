@@ -490,6 +490,120 @@ The gap that actually matters: none of the others tell you *how much* to trust a
 
 Full docs for all of the above: **[aviasoletechnologies.github.io/shapecraft](https://aviasoletechnologies.github.io/shapecraft/)**
 
+## Response Cache
+
+`responseCacheMiddleware({ ttlMs? })` caches `generate()` results keyed on the model
+instance, schema, prompt, and simple generation options. An identical call within
+`ttlMs` skips the model call entirely.
+
+```typescript
+import { createClient, responseCacheMiddleware } from "@aviasole/shapecraft";
+
+const client = createClient({
+  middleware: [responseCacheMiddleware({ ttlMs: 5 * 60_000 })], // default: 60_000 (1 minute)
+});
+
+const r1 = await client.generate(model, schema, prompt); // real call
+const r2 = await client.generate(model, schema, prompt); // cache hit — no model call
+```
+
+A `{ validate }`, YAML, or OpenAPI input bypasses this cache. Zod inputs cache by
+schema instance, so different refinements cannot share an entry. Calls with a
+signal, validation/scoring callbacks, post-processors, or other options that
+cannot be safely keyed also bypass the cache. The cache is an in-memory `Map` with no
+max-size or eviction policy — fine for a bounded number of distinct prompts; add an eviction
+strategy yourself (or ask for one) if you're caching against high-cardinality prompts for long
+enough that memory becomes a real concern.
+
+## Cost Aggregation
+
+shapecraft doesn't compute cost itself — no built-in per-model pricing tables (those go stale
+the moment a provider changes rates, a maintenance burden this repo hasn't taken on for
+anything else). `createCostTracker()` sums costs you supply. `result.metadata.tokens`
+is not populated by the current backends, so use your own billing data or a clearly
+labeled estimate.
+
+```typescript
+import { generate, createCostTracker } from "@aviasole/shapecraft";
+
+const tracker = createCostTracker();
+
+await generate(model, schema, prompt);
+tracker.record(0.001); // estimated cost per call; replace with your billing data
+
+console.log(tracker.total, tracker.calls);
+```
+
+`costTrackingMiddleware(tracker, costFn)` is sugar for automatic tracking through
+`createClient()` instead of calling `tracker.record()` yourself after every direct
+`generate()` call:
+
+```typescript
+import { createClient, createCostTracker, costTrackingMiddleware } from "@aviasole/shapecraft";
+
+const tracker = createCostTracker();
+const client = createClient({
+  middleware: [costTrackingMiddleware(tracker, () => 0.001)], // estimated per call
+});
+
+await client.generate(model, schema, prompt); // tracked automatically
+```
+
+## Retry Backoff
+
+Schema-validation retries fire immediately by default. Pass `retryDelayMs` to
+space those attempts out. Provider transport and rate-limit errors still
+propagate immediately; this option does not retry them.
+
+```typescript
+import { generate, exponentialBackoff } from "@aviasole/shapecraft";
+
+const result = await generate(model, schema, prompt, {
+  maxRetries: 4,
+  retryDelayMs: exponentialBackoff(), // 200ms, 400ms, 800ms, ... jittered, capped at 10s
+});
+```
+
+`retryDelayMs` accepts either a fixed number of ms, or a function `(attempt: number) => number`
+called with the attempt number that just failed. `exponentialBackoff({ baseMs?, factor?, maxMs?, jitter? })`
+is a ready-made strategy — defaults to `baseMs: 200, factor: 2, maxMs: 10_000, jitter: true`.
+Jitter (on by default) randomizes each delay in `[0, computed]` ("full jitter") so concurrent
+callers retrying the same failure don't all retry in lockstep. Never applied after the final
+attempt, and cut short immediately if `signal` aborts mid-wait. Applies to both `generate()`
+and `generateStream()`.
+
+## Model Cascade
+
+`cascade([model1, model2, ...])` starts with the first model and escalates to the next one
+once it's failed enough times - useful for "try a cheap/fast model first, only pay for a
+stronger one on the calls that actually need it."
+
+```typescript
+import { generate, cascade, groq, anthropic } from "@aviasole/shapecraft";
+
+const model = cascade([
+  groq({ model: "llama-3.3-70b-versatile" }),  // tried first
+  anthropic({ model: "claude-sonnet-4-5" }),   // escalated to on failure
+]);
+
+const result = await generate(model, schema, prompt, { maxRetries: 4 });
+console.log(result.metadata.provider); // whichever model actually produced the result
+```
+
+`cascade()` returns a normal `ShapecraftModel` - no changes needed anywhere else, it works
+with `generate()`, `generateStream()`, and `turnaround: true` for free. "Failed" is any
+reason `generate()` would otherwise retry - a structural violation, a failed
+`semanticValidator`, or a score below `minConfidence` - since all three already collapse into
+the same retry signal internally, there's nothing extra to configure per failure type.
+`escalateAfterFailures` (default `1`) controls how many failures on the current model happen
+before moving to the next one; escalation never wraps back around, it caps at the last model
+in the list. `result.metadata`/`result.guaranteeLevel` always reflect whichever model actually
+produced the accepted result, not necessarily the first one in the list.
+
+If a cascade mixes models with and without native streaming, an attempt on a non-streaming
+model automatically falls back to a one-shot `generate()` call for that attempt only - the
+same fallback `generateStream()` itself uses for any plain non-streaming model.
+
 ## Error Handling
 
 ```typescript

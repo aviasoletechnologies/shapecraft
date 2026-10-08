@@ -20,3 +20,4 @@ const result = await generate(model, schema, prompt, {
 | `confidenceScorer` | assigns a 0-1 score to `result.confidence` - see [Staged Validation Pipeline](/guide/staged-validation-pipeline) |
 | `minConfidence` | fails and retries the attempt if `confidenceScorer`'s score is below this |
 | `postProcessors` | array of transforms applied in order to an already-validated value - see [Staged Validation Pipeline](/guide/staged-validation-pipeline) |
+| `retryDelayMs` | fixed delay or `(failedAttempt) => milliseconds` before the next schema-validation retry; `exponentialBackoff()` provides an optional jittered strategy |

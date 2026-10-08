@@ -9,7 +9,10 @@ export { resolveOpenApiSchema } from "./core/openapi.js";
 export { createConversationMemory, COMPLETION_SENTINEL } from "./core/turnaround.js";
 export { SkillRegistry, generateSkillCall, runSkill, runSkillLoop } from "./core/skills.js";
 export { createClient } from "./core/client.js";
-export { composeMiddleware, loggingMiddleware } from "./core/middleware.js";
+export { exponentialBackoff } from "./core/retry.js";
+export { cascade } from "./core/cascade.js";
+export { composeMiddleware, loggingMiddleware, responseCacheMiddleware } from "./core/middleware.js";
+export { createCostTracker, costTrackingMiddleware } from "./core/cost.js";
 export { checkJsonSchema, runValidationPipeline } from "./core/validate.js";
 export { generateWithTools, toolParametersJsonSchema } from "./core/tools.js";
 
@@ -55,7 +58,10 @@ export type {
 } from "./types.js";
 
 export type { CreateClientOptions, ShapecraftClient } from "./core/client.js";
-export type { Middleware, MiddlewareContext, NextFn } from "./core/middleware.js";
+export type { BackoffOptions } from "./core/retry.js";
+export type { CascadeOptions } from "./core/cascade.js";
+export type { Middleware, MiddlewareContext, NextFn, ResponseCacheOptions } from "./core/middleware.js";
+export type { CostTracker } from "./core/cost.js";
 export type { ValidationPipelineOptions, ValidationPipelineResult } from "./core/validate.js";
 
 export {

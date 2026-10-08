@@ -1,7 +1,7 @@
 import type { ChatMessage, SchemaInput, ShapecraftModel } from "../types.js";
-import { buildStructuredPrompt } from "../core/schema.js";
+import { buildStructuredPrompt, toJsonSchema } from "../core/schema.js";
 import { parseAndValidate } from "../core/parse.js";
-import { isGbnfInput } from "../core/validate.js";
+import { isGbnfInput, isZodSchema } from "../core/validate.js";
 import { parseGbnf } from "../core/gbnf.js";
 
 export interface LlamaCppBackendOptions {
@@ -18,11 +18,9 @@ export interface LlamaCppBackendOptions {
  * the grammar is applied at the **token level**, so the output cannot violate it
  * (`guaranteeLevel: "constrained"`, valid by construction).
  *
- * For other schema types (Zod / jsonSchema / pattern / xml / validator) this
- * backend currently runs a prompt-only, best-effort path — it does not yet
- * convert those to a grammar (that's the deferred JSON-Schema→GBNF converter).
- * Until then, treat non-`gbnf` inputs on `llamaCpp()` as best-effort despite the
- * nominal `constrained` level.
+ * Zod and `{ jsonSchema }` inputs are converted to JSON Schema and constrained
+ * with node-llama-cpp's JSON-Schema grammar support. Other schema types remain
+ * prompt-only and best-effort.
  */
 export function llamaCpp(options: LlamaCppBackendOptions): ShapecraftModel {
   // The model load is the expensive step — do it once, lazily, and reuse it
@@ -64,6 +62,9 @@ export function llamaCpp(options: LlamaCppBackendOptions): ShapecraftModel {
       let grammar: any;
       if (isGbnfInput(schema)) {
         grammar = await llama.createGrammar({ grammar: schema.gbnf });
+      } else if (isZodSchema(schema) || "jsonSchema" in schema) {
+        const jsonSchema = isZodSchema(schema) ? toJsonSchema(schema) : schema.jsonSchema;
+        grammar = await llama.createGrammarForJsonSchema(jsonSchema);
       }
 
       const context = await model.createContext(
