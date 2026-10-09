@@ -95,9 +95,8 @@ interface ModelCapabilities {
   streaming: boolean;        // has generateStream()
   chat: boolean;             // has chat() - required for turnaround: true
   structuredOutput: boolean; // has generate() - always true
-  toolCalling: boolean;      // native provider function-calling, drives generateWithTools() -
-                              // true wherever the backend implements toolCall(); llamaCpp() is
-                              // the one backend without it (local GGUF exposes no tools API)
+  toolCalling: boolean;      // drives generateWithTools(); true where the backend implements
+                              // toolCall(). The llamaCpp() adapter does not implement it yet.
   skillDispatch: boolean;    // generateSkillCall()/runSkillLoop() - always true, built on generate()
 }
 ```

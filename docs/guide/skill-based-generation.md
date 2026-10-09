@@ -27,7 +27,7 @@ const call = await generateSkillCall(model, registry, "What's the status of orde
 const result = await runSkill(registry, call);
 ```
 
-`generateSkillCall()` is a thin wrapper around `generate()` - it builds a `z.discriminatedUnion` over every registered skill's `inputSchema` and dispatches through the same retry loop, so `guaranteeLevel` semantics (native/constrained/best-effort) apply per backend exactly like any other call. This is deliberately **not** built on OpenAI/Anthropic's native tool-calling APIs - those don't exist on Ollama or `llamaCpp()` at all, so schema-based dispatch is what makes tool use work identically across every backend, local models included.
+`generateSkillCall()` is a thin wrapper around `generate()` - it builds a `z.discriminatedUnion` over every registered skill's `inputSchema` and dispatches through the same retry loop, so `guaranteeLevel` semantics (native/constrained/best-effort) apply per backend exactly like any other call. It uses schema-based dispatch rather than a backend's `toolCall()` method, so it works on every Shapecraft backend, including `llamaCpp()` where `toolCall()` is not implemented.
 
 v1 skill schemas are **Zod only** - that's the mechanism that makes the discriminated-union dispatch work with zero new validation code.
 
