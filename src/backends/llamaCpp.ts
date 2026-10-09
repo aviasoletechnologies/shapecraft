@@ -46,10 +46,9 @@ export function llamaCpp(options: LlamaCppBackendOptions): ShapecraftModel {
   return {
     id: `llamacpp:${options.modelPath}`,
     guaranteeLevel: "constrained",
-    // The only backend that reports streaming/toolCalling false: local GGUF
-    // inference here exposes no token-delta iterator (the core falls back to a
-    // one-shot generate()) and no tools API. skillDispatch is true for the same
-    // reason it is everywhere - it only needs generate().
+    // This adapter does not implement streaming or toolCall() yet. The core
+    // falls back to one-shot generate() for streaming; skill dispatch still
+    // works because it only needs generate().
     capabilities: { streaming: false, chat: true, structuredOutput: true, toolCalling: false, skillDispatch: true },
 
     async generate<T>(prompt: string, schema: SchemaInput<T>, systemPrompt?: string): Promise<T> {

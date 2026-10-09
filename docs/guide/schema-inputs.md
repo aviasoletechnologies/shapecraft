@@ -1,6 +1,6 @@
 # Schema Inputs
 
-Shapecraft accepts five schema types - not just Zod.
+Shapecraft accepts eight schema input types, including Zod, YAML, and OpenAPI operations.
 
 ## Zod Schema
 
@@ -28,6 +28,45 @@ node-llama-cpp's JSON Schema grammar and constrained during token generation.
 That converter supports a subset of JSON Schema. Shapecraft still runs its
 post-generation validation, but keywords outside the grammar converter's
 supported subset are not guaranteed to be enforced during generation.
+
+## YAML Output
+
+Describe the shape with JSON Schema and ask for YAML output. The result is a
+parsed and validated object by default; use `parse: false` to keep the YAML text.
+
+```typescript
+const result = await generate(model, {
+  yaml: {
+    schema: {
+      type: "object",
+      properties: { name: { type: "string" } },
+      required: ["name"],
+    },
+  },
+}, "Extract the name from: A user named Jane Doe");
+```
+
+YAML formatting is prompt-guided on every backend, so treat it as best-effort
+even if the model's reported `guaranteeLevel` is stronger.
+
+## OpenAPI Operations
+
+Derive a JSON Schema from an OpenAPI 3.x operation instead of writing one by
+hand. `spec` accepts a file path, URL, or parsed object. The default target is
+`requestBody`; use `target: "response"` for a success response schema.
+
+```typescript
+const result = await generate(model, {
+  openapi: {
+    spec: "./openapi.yaml",
+    operationId: "createUser",
+  },
+}, "A user named Jane Doe, age 29");
+```
+
+Shapecraft resolves the operation once before calling the backend, then uses
+the ordinary `{ jsonSchema }` generation and validation path. Missing operations
+or schemas fail before any model call.
 
 ## Regex Pattern
 

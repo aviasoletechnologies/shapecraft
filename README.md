@@ -342,8 +342,8 @@ Output is parsed with [`yaml`](https://www.npmjs.com/package/yaml) then validate
 the schema with the same `checkJsonSchema` logic a `{ jsonSchema }` input uses — a required
 field that's missing or the wrong type retries, same as everywhere else. A model that wraps
 its response in a ` ```yaml ` markdown fence has the fence stripped automatically before
-parsing. `guaranteeLevel` is always `best-effort` — no backend enforces YAML output
-server-side.
+parsing. YAML formatting is prompt-guided on every backend, so treat it as
+best-effort even if the model's reported `guaranteeLevel` is stronger.
 
 ### OpenAPI spec
 
@@ -382,7 +382,7 @@ same philosophy as a malformed GBNF grammar or an invalid XML template.
 | `mistral()` | `native` | Server-side JSON schema mode |
 | `gemini()` | `native` | Server-side JSON schema mode (`responseJsonSchema`) |
 | `ollama()` | `constrained` | Token-level JSON-schema constraint |
-| `llamaCpp()` | `constrained` | Token-level GBNF grammar (local `.gguf` via node-llama-cpp) |
+| `llamaCpp()` | `constrained` | Token-level JSON Schema or GBNF grammar (local `.gguf` via node-llama-cpp) |
 | `anthropic()` | `best-effort` | Prompt + parse + retry |
 | `openRouter()` | `best-effort` | Pass-through to many providers - `response_format` support varies by underlying model |
 | `together()` | `native` | Server-side JSON schema mode |
@@ -390,9 +390,11 @@ same philosophy as a malformed GBNF grammar or an invalid XML template.
 | `grok()` | `native` | Server-side JSON schema mode |
 | `openaiCompatible()` | `best-effort` (override to `native` if your provider enforces it) | Generic factory - see below |
 
-> `llamaCpp()` is `constrained` for a `{ gbnf }` input (token-level). For other schema
-> types (Zod / jsonSchema / …) it currently runs a best-effort prompt path until the
-> JSON-Schema→GBNF converter lands — treat those as best-effort despite the nominal level.
+> `llamaCpp()` constrains Zod and `{ jsonSchema }` inputs with node-llama-cpp's
+> JSON Schema grammar, and `{ gbnf }` inputs with a GBNF grammar. OpenAPI inputs
+> resolve to `{ jsonSchema }` first and use the same path. The JSON Schema grammar
+> supports a subset of the format, so Shapecraft still validates the result.
+> Other input types use prompt guidance and post-generation validation.
 >
 > `fireworks()` is the one cloud backend where a `{ gbnf }` input is *not* downgraded to
 > best-effort — Fireworks' grammar mode (`response_format: { type: "grammar", grammar }`)
@@ -462,18 +464,18 @@ Other libraries solve overlapping parts of this problem well. This is what's act
 | Capability | Instructor-js | zod-gpt | Vercel AI SDK (`generateObject`) | shapecraft |
 |---|---|---|---|---|
 | Providers | OpenAI only | OpenAI, Anthropic | OpenAI, Anthropic, Google, and more | OpenAI, Groq, Fireworks, Mistral, OpenRouter, DeepSeek, Together, Cerebras, xAI, Gemini, Anthropic, Ollama, llama.cpp, any OpenAI-compatible endpoint |
-| Local model support | - | - | no grammar-level constraint | Ollama / llama.cpp with token-level GBNF grammar |
+| Local model support | - | - | no grammar-level constraint | Ollama / llama.cpp with token-level JSON Schema constraints; llama.cpp also accepts GBNF |
 | Per-provider reliability signal | - | - | - | `guaranteeLevel`: `native` / `constrained` / `best-effort` |
 | Retry on schema failure | not documented | fixed 3 attempts, 60s timeout | configurable `maxRetries` | configurable, only on schema-validation failure |
 | Timeout / cancellation | not documented | hardcoded 60s | via provider fetch options | `timeoutMs` / `AbortSignal`, enforced at the core regardless of backend |
 | Streaming | yes | - | yes (`streamObject`) | yes, with per-field incremental validation |
-| Schema input types | Zod only | Zod only | Zod, Valibot, JSON schema | Zod, JSON schema, regex, custom validator, XML, GBNF |
+| Schema input types | Zod only | Zod only | Zod, Valibot, JSON schema | Zod, JSON Schema, regex, custom validator, XML, GBNF, YAML, OpenAPI |
 
 The gap that actually matters: none of the others tell you *how much* to trust a given provider's structured output, or give local models the same real enforcement cloud providers get. shapecraft's `guaranteeLevel` makes that explicit instead of leaving it as something you find out in production.
 
 ## What's included
 
-- **Schema inputs**: Zod, raw JSON Schema, regex pattern, custom validator, XML (with template placeholders and `enforceLiterals`), raw GBNF grammar
+- **Schema inputs**: Zod, raw JSON Schema, regex pattern, custom validator, XML (with template placeholders and `enforceLiterals`), raw GBNF grammar, YAML, OpenAPI operations
 - **Streaming**: `generateStream()` with per-field incremental validation, visible retries on validation failure
 - **`createClient()` & middleware**: a Koa-style onion pipeline for logging, caching, and other cross-cutting concerns
 - **Batch generation**: `generateBatch()`, concurrency-capped, `Promise.allSettled`-style

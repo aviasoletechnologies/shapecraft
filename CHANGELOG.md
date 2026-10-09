@@ -8,6 +8,7 @@
 - `cascade()` model fallback within each request, including streaming calls.
 - `responseCacheMiddleware()` for repeated `createClient().generate()` calls.
 - `createCostTracker()` and `costTrackingMiddleware()` for caller-supplied costs.
+- `llamaCpp()` token-level JSON Schema constraints for Zod, raw JSON Schema, and OpenAPI-derived schemas.
 
 ### Fixed
 
@@ -108,7 +109,8 @@
 - **`llamaCpp()` declared no `capabilities` object at all** - the only backend that
   didn't, so `model.capabilities` was `undefined` there while every other backend
   returned one. It now reports `streaming: false`/`toolCalling: false` explicitly
-  (no token-delta iterator, no tools API) rather than saying nothing.
+  (the adapter had no token-delta iterator or `toolCall` implementation at the time)
+  rather than saying nothing.
 - `ModelCapabilities.toolCalling`'s doc comment still read "Not yet built by any
   backend", which shipped to consumers in the generated `.d.ts`.
 
